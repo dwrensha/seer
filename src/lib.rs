@@ -20,6 +20,7 @@ extern crate syntax;
 
 // From crates.io.
 extern crate byteorder;
+extern crate z3;
 
 mod cast;
 mod error;
