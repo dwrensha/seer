@@ -1,0 +1,28 @@
+[package]
+authors = ["David Renshaw <david@gammaproof.com>"]
+description = "a symbolic execution engine"
+license = "Apache-2.0"
+name = "pangloss"
+version = "0.0.0"
+
+[[bin]]
+doc = false
+name = "pangloss"
+test = false
+
+
+[lib]
+test = false
+
+[dependencies]
+#byteorder = "0.4.2"
+byteorder = { git = "https://github.com/quininer/byteorder.git", branch = "i128", features = ["i128"]}
+env_logger = "0.3.3"
+log = "0.3.6"
+log_settings = "0.1.1"
+cargo_metadata = "0.1"
+
+z3 = "0.2"
+
+[dev-dependencies]
+compiletest_rs = "0.2.5"
