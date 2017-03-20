@@ -5,7 +5,7 @@ use std::fmt::Write;
 use rustc::hir::def_id::DefId;
 use rustc::hir::map::definitions::DefPathData;
 use rustc::middle::const_val::ConstVal;
-use rustc::mir;
+use rustc::mir::{self, Local};
 use rustc::traits::Reveal;
 use rustc::ty::layout::{self, Layout, Size};
 use rustc::ty::subst::{self, Subst, Substs};
@@ -1521,10 +1521,27 @@ pub fn eval_main<'a, 'tcx: 'a>(
     let mut ecx = EvalContext::new(tcx, limits);
     let mir = ecx.load_mir(def_id).expect("main function's MIR not found");
 
-    if !mir.return_ty.is_nil() || mir.arg_count != 0 {
-        let msg = "miri does not support main functions without `fn()` type signatures";
+    if !mir.return_ty.is_nil() || mir.arg_count != 1 {
+        let msg = "miri does not support main functions without `fn(&[u8])` type signatures";
         tcx.sess.err(&EvalError::Unimplemented(String::from(msg)).to_string());
         return;
+    }
+
+    match mir.local_decls[Local::new(1)].ty.sty {
+        ty::TyRef(_, ty::TypeAndMut { ty, .. }) => {
+            match ty.sty {
+                ty::TySlice(ty) => {
+                    match ty.sty {
+                        ty::TyUint(::syntax::ast::UintTy::U8) => {
+                            println!("OK");
+                        }
+                        _ => panic!("nope. the arg needs to be a &[u8]"),
+                    }
+                }
+                _ => panic!("nope. the arg needs to be a &[u8]"),
+            }
+        }
+        _ => panic!("nope. the arg needs to be a &[u8]"),
     }
 
     ecx.push_stack_frame(
