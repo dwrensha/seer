@@ -1527,7 +1527,8 @@ pub fn eval_main<'a, 'tcx: 'a>(
         return;
     }
 
-    match mir.local_decls[Local::new(1)].ty.sty {
+    let param_type = &mir.local_decls[Local::new(1)].ty;
+    match param_type.sty {
         ty::TyRef(_, ty::TypeAndMut { ty, .. }) => {
             match ty.sty {
                 ty::TySlice(ty) => {
@@ -1547,17 +1548,24 @@ pub fn eval_main<'a, 'tcx: 'a>(
     ecx.push_stack_frame(
         def_id,
         DUMMY_SP,
-        mir,
+        Ref::clone(&mir),
         tcx.intern_substs(&[]),
         Lvalue::from_ptr(Pointer::zst_ptr()),
         StackPopCleanup::None,
         Vec::new(),
     ).expect("could not allocate first stack frame");
 
+    let len = 11;
+    let ptr = ecx.memory.allocate(len, 8).unwrap();
+    let val = Value::ByValPair(PrimVal::Ptr(ptr), PrimVal::from_u128(len as u128));
+    let lvalue = ecx.eval_lvalue(&mir::Lvalue::Local(Local::new(1))).unwrap();
+    ecx.write_value(val, lvalue, *param_type);
+
     loop {
         match ecx.step() {
             Ok(true) => {}
             Ok(false) => {
+                ecx.memory.deallocate(ptr).unwrap();
                 let leaks = ecx.memory.leak_report();
                 if leaks != 0 {
                     tcx.sess.err("the evaluated program leaked memory");
