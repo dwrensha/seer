@@ -81,7 +81,7 @@ fn after_analysis<'a, 'tcx>(state: &mut CompileState<'a, 'tcx>) {
     impl<'a, 'tcx: 'a, 'hir> itemlikevisit::ItemLikeVisitor<'hir> for Visitor<'a, 'tcx> {
         fn visit_item(&mut self, i: &'hir hir::Item) {
             if let hir::Item_::ItemFn(_, _, _, _, _, body_id) = i.node {
-                if i.attrs.iter().any(|attr| attr.value.name == "symbolic_execution_entry_point") {
+                if i.attrs.iter().any(|attr| attr.name().map_or(false, |n| n == "symbolic_execution_entry_point")) {
                     let did = self.1.hir.body_owner_def_id(body_id);
                     println!("found one:: {}", self.1.hir.def_path(did).to_string(self.1));
                     pangloss::eval_main(self.1, did, self.0);
@@ -107,8 +107,8 @@ fn resource_limits_from_attributes(state: &CompileState) -> pangloss::ResourceLi
         }
     };
 
-    for attr in krate.attrs.iter().filter(|a| a.name() == "miri") {
-        if let MetaItemKind::List(ref items) = attr.value.node {
+    for attr in krate.attrs.iter().filter(|a| a.name().map_or(false, |n| n == "miri")) {
+        if let Some(items) = attr.meta_item_list() {
             for item in items {
                 if let NestedMetaItemKind::MetaItem(ref inner) = item.node {
                     if let MetaItemKind::NameValue(ref value) = inner.node {
