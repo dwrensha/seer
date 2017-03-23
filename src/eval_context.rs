@@ -1539,28 +1539,10 @@ pub fn eval_main<'a, 'tcx: 'a>(
     let mut ecx = EvalContext::new(tcx, limits);
     let mir = ecx.load_mir(def_id).expect("main function's MIR not found");
 
-    if !mir.return_ty.is_nil() || mir.arg_count != 1 {
+    if !mir.return_ty.is_nil() || mir.arg_count > 1 {
         let msg = "miri does not support main functions without `fn(&[u8])` type signatures";
         tcx.sess.err(&EvalError::Unimplemented(String::from(msg)).to_string());
         return;
-    }
-
-    let param_type = &mir.local_decls[Local::new(1)].ty;
-    match param_type.sty {
-        ty::TyRef(_, ty::TypeAndMut { ty, .. }) => {
-            match ty.sty {
-                ty::TySlice(ty) => {
-                    match ty.sty {
-                        ty::TyUint(::syntax::ast::UintTy::U8) => {
-                            println!("OK");
-                        }
-                        _ => panic!("nope. the arg needs to be a &[u8]"),
-                    }
-                }
-                _ => panic!("nope. the arg needs to be a &[u8]"),
-            }
-        }
-        _ => panic!("nope. the arg needs to be a &[u8]"),
     }
 
     ecx.push_stack_frame(
@@ -1573,17 +1555,38 @@ pub fn eval_main<'a, 'tcx: 'a>(
         Vec::new(),
     ).expect("could not allocate first stack frame");
 
-    let len = 11;
-    let ptr = ecx.memory.allocate(len, 8).unwrap();
-    let val = Value::ByValPair(PrimVal::Ptr(ptr), PrimVal::from_u128(len as u128));
-    let lvalue = ecx.eval_lvalue(&mir::Lvalue::Local(Local::new(1))).unwrap();
-    ecx.write_value(val, lvalue, *param_type).unwrap();
+    let ptr = if mir.arg_count == 1 {
+        let param_type = &mir.local_decls[Local::new(1)].ty;
+        match param_type.sty {
+            ty::TyRef(_, ty::TypeAndMut { ty, .. }) => {
+                match ty.sty {
+                    ty::TySlice(ty) => {
+                        match ty.sty {
+                            ty::TyUint(::syntax::ast::UintTy::U8) => {
+                                println!("OK");
+                            }
+                            _ => panic!("nope. the arg needs to be a &[u8]"),
+                        }
+                    }
+                    _ => panic!("nope. the arg needs to be a &[u8]"),
+                }
+            }
+            _ => panic!("nope. the arg needs to be a &[u8]"),
+        }
+
+        let len = 11;
+        let ptr = ecx.memory.allocate(len, 8).unwrap();
+        let val = Value::ByValPair(PrimVal::Ptr(ptr), PrimVal::from_u128(len as u128));
+        let lvalue = ecx.eval_lvalue(&mir::Lvalue::Local(Local::new(1))).unwrap();
+        ecx.write_value(val, lvalue, *param_type).unwrap();
+        Some(ptr)
+    } else { None };
 
     loop {
         match ecx.step() {
             Ok(true) => {}
             Ok(false) => {
-                ecx.memory.deallocate(ptr).unwrap();
+                ptr.map(|p| ecx.memory.deallocate(p).unwrap());
                 let leaks = ecx.memory.leak_report();
                 if leaks != 0 {
                     tcx.sess.err("the evaluated program leaked memory");

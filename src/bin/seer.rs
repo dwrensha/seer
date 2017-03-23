@@ -77,23 +77,32 @@ fn after_analysis<'a, 'tcx>(state: &mut CompileState<'a, 'tcx>) {
     seer::run_mir_passes(tcx);
     let limits = resource_limits_from_attributes(state);
 
-    struct Visitor<'a, 'tcx: 'a>(seer::ResourceLimits, TyCtxt<'a, 'tcx, 'tcx>, &'a CompileState<'a, 'tcx>);
-    impl<'a, 'tcx: 'a, 'hir> itemlikevisit::ItemLikeVisitor<'hir> for Visitor<'a, 'tcx> {
-        fn visit_item(&mut self, i: &'hir hir::Item) {
-            if let hir::Item_::ItemFn(_, _, _, _, _, body_id) = i.node {
-                if i.attrs.iter().any(|attr| attr.name().map_or(false, |n| n == "symbolic_execution_entry_point")) {
-                    let did = self.1.hir.body_owner_def_id(body_id);
-                    println!("found one:: {}", self.1.hir.def_path(did).to_string(self.1));
-                    seer::eval_main(self.1, did, self.0);
-                    self.2.session.abort_if_errors();
+    if std::env::args().any(|arg| arg == "--test") {
+        struct Visitor<'a, 'tcx: 'a>(seer::ResourceLimits, TyCtxt<'a, 'tcx, 'tcx>, &'a CompileState<'a, 'tcx>);
+        impl<'a, 'tcx: 'a, 'hir> itemlikevisit::ItemLikeVisitor<'hir> for Visitor<'a, 'tcx> {
+            fn visit_item(&mut self, i: &'hir hir::Item) {
+                if let hir::Item_::ItemFn(_, _, _, _, _, body_id) = i.node {
+                    if i.attrs.iter().any(|attr| attr.name().map_or(false, |n| n == "symbolic_execution_entry_point")) {
+                        let did = self.1.hir.body_owner_def_id(body_id);
+                        seer::eval_main(self.1, did, self.0);
+                        self.2.session.abort_if_errors();
+                    }
                 }
             }
+            fn visit_trait_item(&mut self, _trait_item: &'hir hir::TraitItem) {}
+            fn visit_impl_item(&mut self, _impl_item: &'hir hir::ImplItem) {}
         }
-        fn visit_trait_item(&mut self, _trait_item: &'hir hir::TraitItem) {}
-        fn visit_impl_item(&mut self, _impl_item: &'hir hir::ImplItem) {}
-    }
-    state.hir_crate.unwrap().visit_all_item_likes(&mut Visitor(limits, tcx, state));
+        state.hir_crate.unwrap().visit_all_item_likes(&mut Visitor(limits, tcx, state));
+    } else {
+        if let Some((entry_node_id, _)) = *state.session.entry_fn.borrow() {
+            let entry_def_id = tcx.hir.local_def_id(entry_node_id);
+            seer::eval_main(tcx, entry_def_id, limits);
 
+            state.session.abort_if_errors();
+        } else {
+            println!("no main function found, assuming auxiliary build");
+        }
+    }
 }
 
 fn resource_limits_from_attributes(state: &CompileState) -> seer::ResourceLimits {
