@@ -21,6 +21,7 @@ use value::{PrimVal, PrimValKind, Value};
 
 pub type MirRef<'tcx> = Ref<'tcx, mir::Mir<'tcx>>;
 
+#[derive(Clone)]
 pub struct EvalContext<'a, 'tcx: 'a> {
     /// The results of the type checker, from rustc.
     pub(crate) tcx: TyCtxt<'a, 'tcx, 'tcx>,

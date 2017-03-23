@@ -23,7 +23,7 @@ impl fmt::Display for AllocId {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Allocation {
     /// The actual bytes of the allocation.
     /// Note that the bytes of a pointer represent the offset of the pointer
@@ -144,6 +144,7 @@ impl<'tcx> Function<'tcx> {
 // Top-level interpreter memory
 ////////////////////////////////////////////////////////////////////////////////
 
+#[derive(Clone)]
 pub struct Memory<'a, 'tcx> {
     /// Actual memory allocations (arbitrary bytes, may contain pointers into other allocations).
     alloc_map: HashMap<AllocId, Allocation>,
@@ -434,7 +435,7 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
 // the one we're looking for, but not > the end of the range we're checking.
 // At the same time the `packed_end` is irrelevant for the sorting and range searching, but used for the check.
 // This kind of search breaks, if `packed_end < packed_start`, so don't do that!
-#[derive(Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Eq, PartialEq, Ord, PartialOrd, Clone)]
 struct Entry {
     alloc_id: AllocId,
     packed_start: u64,
