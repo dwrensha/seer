@@ -1,7 +1,7 @@
 #![feature(rustc_private, i128_type)]
 
 extern crate getopts;
-extern crate pangloss;
+extern crate seer;
 extern crate rustc;
 extern crate rustc_driver;
 extern crate rustc_errors;
@@ -19,9 +19,9 @@ use rustc::ty::TyCtxt;
 use syntax::ast::{MetaItemKind, NestedMetaItemKind, self};
 use std::path::PathBuf;
 
-struct PanglossCompilerCalls(RustcDefaultCalls);
+struct SeerCompilerCalls(RustcDefaultCalls);
 
-impl<'a> CompilerCalls<'a> for PanglossCompilerCalls {
+impl<'a> CompilerCalls<'a> for SeerCompilerCalls {
     fn early_callback(
         &mut self,
         matches: &getopts::Matches,
@@ -74,17 +74,17 @@ fn after_analysis<'a, 'tcx>(state: &mut CompileState<'a, 'tcx>) {
     state.session.abort_if_errors();
 
     let tcx = state.tcx.unwrap();
-    pangloss::run_mir_passes(tcx);
+    seer::run_mir_passes(tcx);
     let limits = resource_limits_from_attributes(state);
 
-    struct Visitor<'a, 'tcx: 'a>(pangloss::ResourceLimits, TyCtxt<'a, 'tcx, 'tcx>, &'a CompileState<'a, 'tcx>);
+    struct Visitor<'a, 'tcx: 'a>(seer::ResourceLimits, TyCtxt<'a, 'tcx, 'tcx>, &'a CompileState<'a, 'tcx>);
     impl<'a, 'tcx: 'a, 'hir> itemlikevisit::ItemLikeVisitor<'hir> for Visitor<'a, 'tcx> {
         fn visit_item(&mut self, i: &'hir hir::Item) {
             if let hir::Item_::ItemFn(_, _, _, _, _, body_id) = i.node {
                 if i.attrs.iter().any(|attr| attr.name().map_or(false, |n| n == "symbolic_execution_entry_point")) {
                     let did = self.1.hir.body_owner_def_id(body_id);
                     println!("found one:: {}", self.1.hir.def_path(did).to_string(self.1));
-                    pangloss::eval_main(self.1, did, self.0);
+                    seer::eval_main(self.1, did, self.0);
                     self.2.session.abort_if_errors();
                 }
             }
@@ -96,8 +96,8 @@ fn after_analysis<'a, 'tcx>(state: &mut CompileState<'a, 'tcx>) {
 
 }
 
-fn resource_limits_from_attributes(state: &CompileState) -> pangloss::ResourceLimits {
-    let mut limits = pangloss::ResourceLimits::default();
+fn resource_limits_from_attributes(state: &CompileState) -> seer::ResourceLimits {
+    let mut limits = seer::ResourceLimits::default();
     let krate = state.hir_crate.as_ref().unwrap();
     let err_msg = "miri attributes need to be in the form `miri(key = value)`";
     let extract_int = |lit: &syntax::ast::Lit| -> u128 {
@@ -194,5 +194,5 @@ fn main() {
     // for auxilary builds in unit tests
     args.push("-Zalways-encode-mir".to_owned());
 
-    rustc_driver::run_compiler(&args, &mut PanglossCompilerCalls(RustcDefaultCalls), None, None);
+    rustc_driver::run_compiler(&args, &mut SeerCompilerCalls(RustcDefaultCalls), None, None);
 }

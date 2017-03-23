@@ -1,13 +1,13 @@
 [package]
 authors = ["David Renshaw <david@gammaproof.com>"]
-description = "a symbolic execution engine"
+description = "symbolic execution engine for rust"
 license = "Apache-2.0"
-name = "pangloss"
+name = "seer"
 version = "0.0.0"
 
 [[bin]]
 doc = false
-name = "pangloss"
+name = "seer"
 test = false
 
 
