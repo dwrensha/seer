@@ -96,6 +96,23 @@ pub struct Frame<'tcx> {
     pub stmt: usize,
 }
 
+impl <'tcx> Clone for Frame<'tcx> {
+    fn clone(&self) -> Self {
+        Frame {
+            mir: MirRef::clone(&self.mir),
+            def_id: self.def_id,
+            substs: self.substs,
+            span: self.span,
+            return_to_block: self.return_to_block.clone(),
+            return_lvalue: self.return_lvalue,
+            locals: self.locals.clone(),
+            interpreter_temporaries: self.interpreter_temporaries.clone(),
+            block: self.block.clone(),
+            stmt: self.stmt,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub enum StackPopCleanup {
     /// The stackframe existed to compute the initial value of a static/constant, make sure it
@@ -1559,7 +1576,7 @@ pub fn eval_main<'a, 'tcx: 'a>(
     let ptr = ecx.memory.allocate(len, 8).unwrap();
     let val = Value::ByValPair(PrimVal::Ptr(ptr), PrimVal::from_u128(len as u128));
     let lvalue = ecx.eval_lvalue(&mir::Lvalue::Local(Local::new(1))).unwrap();
-    ecx.write_value(val, lvalue, *param_type);
+    ecx.write_value(val, lvalue, *param_type).unwrap();
 
     loop {
         match ecx.step() {
