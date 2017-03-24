@@ -21,20 +21,34 @@ impl fmt::Display for AllocId {
     }
 }
 
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub struct AbstractVariable(u32);
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum SByte {
+    Concrete(u8),
+    Abstract,
+}
+
 #[derive(Debug, Clone)]
 pub struct Allocation {
     /// The actual bytes of the allocation.
     /// Note that the bytes of a pointer represent the offset of the pointer
-    pub bytes: Vec<u8>,
+    pub bytes: Vec<SByte>,
+
     /// Maps from byte addresses to allocations.
     /// Only the first byte of a pointer is inserted into the map.
     pub relocations: BTreeMap<u64, AllocId>,
+
     /// Denotes undefined memory. Reading from undefined memory is forbidden in miri
     pub undef_mask: UndefMask,
+
     /// The alignment of the allocation to detect unaligned reads.
     pub align: u64,
+
     /// Whether the allocation may be modified.
     /// Use the `mark_static_initalized` method of `Memory` to ensure that an error occurs, if the memory of this
+
     /// allocation is modified or deallocated in the future.
     pub static_kind: StaticKind,
 }
@@ -150,6 +164,8 @@ pub struct Memory<'a, 'tcx> {
     /// A cache for basic byte allocations keyed by their contents. This is used to deduplicate
     /// allocations for string and bytestring literals.
     literal_alloc_cache: HashMap<Vec<u8>, AllocId>,
+
+    // next_abstract_variable: AbstractVariable,
 }
 
 const ZST_ALLOC_ID: AllocId = AllocId(0);
@@ -215,7 +231,7 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
         self.memory_usage += size;
         assert_eq!(size as usize as u64, size);
         let alloc = Allocation {
-            bytes: vec![0; size as usize],
+            bytes: vec![SByte::Concrete(0); size as usize],
             relocations: BTreeMap::new(),
             undef_mask: UndefMask::new(size),
             align,
@@ -248,7 +264,7 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
             self.memory_usage += amount;
             let alloc = self.get_mut(ptr.alloc_id)?;
             assert_eq!(amount as usize as u64, amount);
-            alloc.bytes.extend(iter::repeat(0).take(amount as usize));
+            alloc.bytes.extend(iter::repeat(SByte::Concrete(0)).take(amount as usize));
             alloc.undef_mask.grow(amount, false);
         } else if size > new_size {
             self.memory_usage -= size - new_size;
@@ -442,7 +458,7 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
                 }
                 if alloc.undef_mask.is_range_defined(i, i + 1) {
                     // this `as usize` is fine, since `i` came from a `usize`
-                    write!(msg, "{:02x} ", alloc.bytes[i as usize]).unwrap();
+                    write!(msg, "{:?} ", alloc.bytes[i as usize]).unwrap();
                 } else {
                     msg.push_str("__ ");
                 }
@@ -497,7 +513,9 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
 
 /// Byte accessors
 impl<'a, 'tcx> Memory<'a, 'tcx> {
-    fn get_bytes_unchecked(&self, ptr: Pointer, size: u64, align: u64) -> EvalResult<'tcx, &[u8]> {
+    fn get_bytes_unchecked(&self, ptr: Pointer, size: u64, align: u64)
+                           -> EvalResult<'tcx, &[SByte]>
+    {
         if size == 0 {
             return Ok(&[]);
         }
@@ -513,7 +531,9 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
         Ok(&alloc.bytes[offset..offset + size as usize])
     }
 
-    fn get_bytes_unchecked_mut(&mut self, ptr: Pointer, size: u64, align: u64) -> EvalResult<'tcx, &mut [u8]> {
+    fn get_bytes_unchecked_mut(&mut self, ptr: Pointer, size: u64, align: u64)
+                               -> EvalResult<'tcx, &mut [SByte]>
+    {
         if size == 0 {
             return Ok(&mut []);
         }
@@ -529,7 +549,9 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
         Ok(&mut alloc.bytes[offset..offset + size as usize])
     }
 
-    fn get_bytes(&self, ptr: Pointer, size: u64, align: u64) -> EvalResult<'tcx, &[u8]> {
+    fn get_bytes(&self, ptr: Pointer, size: u64, align: u64)
+                 -> EvalResult<'tcx, &[SByte]>
+    {
         if size == 0 {
             return Ok(&[]);
         }
@@ -540,7 +562,9 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
         self.get_bytes_unchecked(ptr, size, align)
     }
 
-    fn get_bytes_mut(&mut self, ptr: Pointer, size: u64, align: u64) -> EvalResult<'tcx, &mut [u8]> {
+    fn get_bytes_mut(&mut self, ptr: Pointer, size: u64, align: u64)
+                     -> EvalResult<'tcx, &mut [SByte]>
+    {
         if size == 0 {
             return Ok(&mut []);
         }
@@ -625,11 +649,13 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
         Ok(())
     }
 
-    pub fn read_c_str(&self, ptr: Pointer) -> EvalResult<'tcx, &[u8]> {
+    pub fn read_c_str(&self, _ptr: Pointer) -> EvalResult<'tcx, &[u8]> {
+        unimplemented!()
+        /*
         let alloc = self.get(ptr.alloc_id)?;
         assert_eq!(ptr.offset as usize as u64, ptr.offset);
         let offset = ptr.offset as usize;
-        match alloc.bytes[offset..].iter().position(|&c| c == 0) {
+        match alloc.bytes[offset..].iter().position(|&c| c == SByte::Concrete(0)) {
             Some(size) => {
                 if self.relocations(ptr, (size + 1) as u64)?.count() != 0 {
                     return Err(EvalError::ReadPointerAsBytes);
@@ -638,22 +664,26 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
                 Ok(&alloc.bytes[offset..offset + size])
             },
             None => Err(EvalError::UnterminatedCString(ptr)),
-        }
+        } */
     }
 
-    pub fn read_bytes(&self, ptr: Pointer, size: u64) -> EvalResult<'tcx, &[u8]> {
+    pub fn read_bytes(&self, ptr: Pointer, size: u64)
+                      -> EvalResult<'tcx, &[SByte]>
+    {
         self.get_bytes(ptr, size, 1)
     }
 
     pub fn write_bytes(&mut self, ptr: Pointer, src: &[u8]) -> EvalResult<'tcx> {
         let bytes = self.get_bytes_mut(ptr, src.len() as u64, 1)?;
-        bytes.clone_from_slice(src);
+        for idx in 0..bytes.len() {
+            bytes[idx] = SByte::Concrete(src[idx]);
+        }
         Ok(())
     }
 
     pub fn write_repeat(&mut self, ptr: Pointer, val: u8, count: u64) -> EvalResult<'tcx> {
         let bytes = self.get_bytes_mut(ptr, count, 1)?;
-        for b in bytes { *b = val; }
+        for b in bytes { *b = SByte::Concrete(val); }
         Ok(())
     }
 
@@ -662,7 +692,7 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
         self.check_defined(ptr, size)?;
         let endianess = self.endianess();
         let bytes = self.get_bytes_unchecked(ptr, size, size)?;
-        let offset = read_target_uint(endianess, bytes).unwrap();
+        let offset = self.read_target_uint(endianess, bytes).unwrap().to_u128()?;
         assert_eq!(offset as u64 as u128, offset);
         let offset = offset as u64;
         let alloc = self.get(ptr.alloc_id)?;
@@ -704,24 +734,30 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
                 self.write_uint(dest, bytes & mask, size)
             }
 
+            PrimVal::Abstract => {
+                unimplemented!()
+            }
+
             PrimVal::Undef => self.mark_definedness(dest, size, false),
         }
     }
 
-    pub fn read_bool(&self, ptr: Pointer) -> EvalResult<'tcx, bool> {
+    pub fn read_bool(&self, ptr: Pointer) -> EvalResult<'tcx, PrimVal> {
         let bytes = self.get_bytes(ptr, 1, self.layout.i1_align.abi())?;
         match bytes[0] {
-            0 => Ok(false),
-            1 => Ok(true),
-            _ => Err(EvalError::InvalidBool),
+            SByte::Concrete(0) => Ok(PrimVal::from_bool(false)),
+            SByte::Concrete(1) => Ok(PrimVal::from_bool(true)),
+            SByte::Concrete(_) => Err(EvalError::InvalidBool),
+            SByte::Abstract => unimplemented!(),
         }
     }
 
+    /*
     pub fn write_bool(&mut self, ptr: Pointer, b: bool) -> EvalResult<'tcx> {
         let align = self.layout.i1_align.abi();
         self.get_bytes_mut(ptr, 1, align)
             .map(|bytes| bytes[0] = b as u8)
-    }
+    }*/
 
     fn int_align(&self, size: u64) -> EvalResult<'tcx, u64> {
         match size {
@@ -734,34 +770,42 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
         }
     }
 
-    pub fn read_int(&self, ptr: Pointer, size: u64) -> EvalResult<'tcx, i128> {
+    pub fn read_int(&self, ptr: Pointer, size: u64) -> EvalResult<'tcx, PrimVal> {
         let align = self.int_align(size)?;
-        self.get_bytes(ptr, size, align).map(|b| read_target_int(self.endianess(), b).unwrap())
+        self.get_bytes(ptr, size, align).map(|b| self.read_primval(b, true).unwrap())
     }
 
     pub fn write_int(&mut self, ptr: Pointer, n: i128, size: u64) -> EvalResult<'tcx> {
         let align = self.int_align(size)?;
         let endianess = self.endianess();
-        let b = self.get_bytes_mut(ptr, size, align)?;
-        write_target_int(endianess, b, n).unwrap();
+        let mut bytes = vec![0u8; size as usize];
+        let sb = self.get_bytes_mut(ptr, size, align)?;
+        Self::write_target_int(endianess, &mut bytes[..], n).unwrap();
+        for idx in 0..bytes.len() {
+            sb[idx] = SByte::Concrete(bytes[idx]);
+        }
         Ok(())
     }
 
-    pub fn read_uint(&self, ptr: Pointer, size: u64) -> EvalResult<'tcx, u128> {
+    pub fn read_uint(&self, ptr: Pointer, size: u64) -> EvalResult<'tcx, PrimVal> {
         let align = self.int_align(size)?;
-        self.get_bytes(ptr, size, align).map(|b| read_target_uint(self.endianess(), b).unwrap())
+        self.get_bytes(ptr, size, align).map(|b| self.read_primval(b, false).unwrap())
     }
 
     pub fn write_uint(&mut self, ptr: Pointer, n: u128, size: u64) -> EvalResult<'tcx> {
         let align = self.int_align(size)?;
         let endianess = self.endianess();
-        let b = self.get_bytes_mut(ptr, size, align)?;
-        write_target_uint(endianess, b, n).unwrap();
+        let sb = self.get_bytes_mut(ptr, size, align)?;
+        let mut bytes = vec![0u8; size as usize];
+        Self::write_target_uint(endianess, &mut bytes[..], n).unwrap();
+        for idx in 0..bytes.len() {
+            sb[idx] = SByte::Concrete(bytes[idx]);
+        }
         Ok(())
     }
 
-    pub fn read_isize(&self, ptr: Pointer) -> EvalResult<'tcx, i64> {
-        self.read_int(ptr, self.pointer_size()).map(|i| i as i64)
+    pub fn read_isize(&self, ptr: Pointer) -> EvalResult<'tcx, PrimVal> {
+        self.read_int(ptr, self.pointer_size())
     }
 
     pub fn write_isize(&mut self, ptr: Pointer, n: i64) -> EvalResult<'tcx> {
@@ -769,8 +813,8 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
         self.write_int(ptr, n as i128, size)
     }
 
-    pub fn read_usize(&self, ptr: Pointer) -> EvalResult<'tcx, u64> {
-        self.read_uint(ptr, self.pointer_size()).map(|i| i as u64)
+    pub fn read_usize(&self, ptr: Pointer) -> EvalResult<'tcx, PrimVal> {
+        self.read_uint(ptr, self.pointer_size())
     }
 
     pub fn write_usize(&mut self, ptr: Pointer, n: u64) -> EvalResult<'tcx> {
@@ -778,6 +822,7 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
         self.write_uint(ptr, n as u128, size)
     }
 
+    /*
     pub fn write_f32(&mut self, ptr: Pointer, f: f32) -> EvalResult<'tcx> {
         let endianess = self.endianess();
         let align = self.layout.f32_align.abi();
@@ -790,18 +835,68 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
         let endianess = self.endianess();
         let align = self.layout.f64_align.abi();
         let b = self.get_bytes_mut(ptr, 8, align)?;
-        write_target_f64(endianess, b, f).unwrap();
+        self.write_target_f64(endianess, b, f).unwrap();
         Ok(())
+    }*/
+
+    pub fn read_f32(&self, ptr: Pointer) -> EvalResult<'tcx, PrimVal> {
+        self.read_uint(ptr, 4)
     }
 
-    pub fn read_f32(&self, ptr: Pointer) -> EvalResult<'tcx, f32> {
-        self.get_bytes(ptr, 4, self.layout.f32_align.abi())
-            .map(|b| read_target_f32(self.endianess(), b).unwrap())
+    pub fn read_f64(&self, ptr: Pointer) -> EvalResult<'tcx, PrimVal> {
+        self.read_uint(ptr, 8)
     }
 
-    pub fn read_f64(&self, ptr: Pointer) -> EvalResult<'tcx, f64> {
-        self.get_bytes(ptr, 8, self.layout.f64_align.abi())
-            .map(|b| read_target_f64(self.endianess(), b).unwrap())
+    fn read_primval(&self, sbytes: &[SByte], signed: bool) -> Result<PrimVal, io::Error>
+    {
+        let mut bytes = Vec::with_capacity(sbytes.len());
+        for sb in sbytes {
+            match *sb {
+                SByte::Concrete(b) => bytes.push(b),
+                SByte::Abstract => return Ok(PrimVal::Abstract),
+            }
+        }
+
+        let mut source = &bytes[..];
+        Ok(match (self.endianess(), signed) {
+            (layout::Endian::Little, false) =>
+                PrimVal::from_u128(source.read_uint128::<LittleEndian>(source.len())?),
+            (layout::Endian::Big, false) =>
+                PrimVal::from_u128(source.read_uint128::<BigEndian>(source.len())?),
+            (layout::Endian::Little, true) =>
+                PrimVal::from_i128(source.read_int128::<LittleEndian>(source.len())?),
+            (layout::Endian::Big, true) =>
+                PrimVal::from_i128(source.read_int128::<BigEndian>(source.len())?),
+
+        })
+    }
+
+    ////////////////////////////////////////////////////////////////////////////////
+    // Methods to access integers in the target endianess
+    ////////////////////////////////////////////////////////////////////////////////
+
+    fn write_target_uint(endianess: layout::Endian, mut target: &mut [u8], data: u128) -> Result<(), io::Error> {
+        let len = target.len();
+        match endianess {
+            layout::Endian::Little => target.write_uint128::<LittleEndian>(data, len),
+            layout::Endian::Big => target.write_uint128::<BigEndian>(data, len),
+        }
+    }
+
+    fn write_target_int(endianess: layout::Endian, mut target: &mut [u8], data: i128)
+                        -> Result<(), io::Error>
+    {
+        let len = target.len();
+        match endianess {
+            layout::Endian::Little => target.write_int128::<LittleEndian>(data, len),
+            layout::Endian::Big => target.write_int128::<BigEndian>(data, len),
+        }
+    }
+
+    fn read_target_uint(&self, _endianess: layout::Endian, source: &[SByte])
+                        -> Result<PrimVal, io::Error>
+    {
+        self.read_primval(source, false)
     }
 }
 
@@ -897,68 +992,6 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
         let mut alloc = self.get_mut(ptr.alloc_id)?;
         alloc.undef_mask.set_range(ptr.offset, ptr.offset + size, new_state);
         Ok(())
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-// Methods to access integers in the target endianess
-////////////////////////////////////////////////////////////////////////////////
-
-fn write_target_uint(endianess: layout::Endian, mut target: &mut [u8], data: u128) -> Result<(), io::Error> {
-    let len = target.len();
-    match endianess {
-        layout::Endian::Little => target.write_uint128::<LittleEndian>(data, len),
-        layout::Endian::Big => target.write_uint128::<BigEndian>(data, len),
-    }
-}
-fn write_target_int(endianess: layout::Endian, mut target: &mut [u8], data: i128) -> Result<(), io::Error> {
-    let len = target.len();
-    match endianess {
-        layout::Endian::Little => target.write_int128::<LittleEndian>(data, len),
-        layout::Endian::Big => target.write_int128::<BigEndian>(data, len),
-    }
-}
-
-fn read_target_uint(endianess: layout::Endian, mut source: &[u8]) -> Result<u128, io::Error> {
-    match endianess {
-        layout::Endian::Little => source.read_uint128::<LittleEndian>(source.len()),
-        layout::Endian::Big => source.read_uint128::<BigEndian>(source.len()),
-    }
-}
-fn read_target_int(endianess: layout::Endian, mut source: &[u8]) -> Result<i128, io::Error> {
-    match endianess {
-        layout::Endian::Little => source.read_int128::<LittleEndian>(source.len()),
-        layout::Endian::Big => source.read_int128::<BigEndian>(source.len()),
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-// Methods to access floats in the target endianess
-////////////////////////////////////////////////////////////////////////////////
-
-fn write_target_f32(endianess: layout::Endian, mut target: &mut [u8], data: f32) -> Result<(), io::Error> {
-    match endianess {
-        layout::Endian::Little => target.write_f32::<LittleEndian>(data),
-        layout::Endian::Big => target.write_f32::<BigEndian>(data),
-    }
-}
-fn write_target_f64(endianess: layout::Endian, mut target: &mut [u8], data: f64) -> Result<(), io::Error> {
-    match endianess {
-        layout::Endian::Little => target.write_f64::<LittleEndian>(data),
-        layout::Endian::Big => target.write_f64::<BigEndian>(data),
-    }
-}
-
-fn read_target_f32(endianess: layout::Endian, mut source: &[u8]) -> Result<f32, io::Error> {
-    match endianess {
-        layout::Endian::Little => source.read_f32::<LittleEndian>(),
-        layout::Endian::Big => source.read_f32::<BigEndian>(),
-    }
-}
-fn read_target_f64(endianess: layout::Endian, mut source: &[u8]) -> Result<f64, io::Error> {
-    match endianess {
-        layout::Endian::Little => source.read_f64::<LittleEndian>(),
-        layout::Endian::Big => source.read_f64::<BigEndian>(),
     }
 }
 

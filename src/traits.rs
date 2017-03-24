@@ -87,8 +87,8 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
 
     pub fn read_size_and_align_from_vtable(&self, vtable: Pointer) -> EvalResult<'tcx, (u64, u64)> {
         let pointer_size = self.memory.pointer_size();
-        let size = self.memory.read_usize(vtable.offset(pointer_size))?;
-        let align = self.memory.read_usize(vtable.offset(pointer_size * 2))?;
+        let size = self.memory.read_usize(vtable.offset(pointer_size))?.to_u64()?;
+        let align = self.memory.read_usize(vtable.offset(pointer_size * 2))?.to_u64()?;
         Ok((size, align))
     }
 

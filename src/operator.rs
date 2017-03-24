@@ -178,6 +178,7 @@ pub fn binary_op(
         }
 
         (PrimVal::Undef, _) | (_, PrimVal::Undef) => return Err(EvalError::ReadUndefBytes),
+        _ => unimplemented!(),
     };
 
     // These ops can have an RHS with a different numeric type.

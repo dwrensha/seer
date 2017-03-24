@@ -52,6 +52,9 @@ pub enum PrimVal {
     /// The raw bytes of a simple value.
     Bytes(u128),
 
+    /// TODO: abstract value. (Should have a variable ID associated.)
+    Abstract,
+
     /// A pointer into an `Allocation`. An `Allocation` in the `memory` module has a list of
     /// relocations, but a `PrimVal` is only large enough to contain one, so we just represent the
     /// relocation and its associated offset together as a `Pointer` here.
@@ -105,7 +108,10 @@ impl<'a, 'tcx: 'a> Value {
         match *self {
             ByRef(ref_ptr) => {
                 let ptr = mem.read_ptr(ref_ptr)?;
-                let len = mem.read_usize(ref_ptr.offset(mem.pointer_size()))?;
+                let len = match mem.read_usize(ref_ptr.offset(mem.pointer_size()))? {
+                    PrimVal::Bytes(n) => n as u64,
+                    _ => unimplemented!(),
+                };
                 Ok((ptr, len))
             },
             ByValPair(ptr, val) => {
@@ -146,6 +152,7 @@ impl<'tcx> PrimVal {
     pub fn to_bytes(self) -> EvalResult<'tcx, u128> {
         match self {
             PrimVal::Bytes(b) => Ok(b),
+            PrimVal::Abstract => unimplemented!(),
             PrimVal::Ptr(p) => p.to_int().map(|b| b as u128),
             PrimVal::Undef => Err(EvalError::ReadUndefBytes),
         }
@@ -154,6 +161,7 @@ impl<'tcx> PrimVal {
     pub fn to_ptr(self) -> EvalResult<'tcx, Pointer> {
         match self {
             PrimVal::Bytes(b) => Ok(Pointer::from_int(b as u64)),
+            PrimVal::Abstract => unimplemented!(),
             PrimVal::Ptr(p) => Ok(p),
             PrimVal::Undef => Err(EvalError::ReadUndefBytes),
         }

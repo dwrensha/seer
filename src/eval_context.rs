@@ -1382,7 +1382,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             let extra = match self.tcx.struct_tail(pointee_ty).sty {
                 ty::TyDynamic(..) => PrimVal::Ptr(self.memory.read_ptr(extra)?),
                 ty::TySlice(..) |
-                ty::TyStr => PrimVal::from_u128(self.memory.read_usize(extra)? as u128),
+                ty::TyStr => self.memory.read_usize(extra)?,
                 _ => bug!("unsized primval ptr read from {:?}", pointee_ty),
             };
             Ok(Value::ByValPair(PrimVal::Ptr(p), extra))
@@ -1393,12 +1393,17 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         use syntax::ast::FloatTy;
 
         let val = match ty.sty {
-            ty::TyBool => PrimVal::from_bool(self.memory.read_bool(ptr)?),
+            ty::TyBool => self.memory.read_bool(ptr)?,
             ty::TyChar => {
-                let c = self.memory.read_uint(ptr, 4)? as u32;
-                match ::std::char::from_u32(c) {
-                    Some(ch) => PrimVal::from_char(ch),
-                    None => return Err(EvalError::InvalidChar(c as u128)),
+                let c = self.memory.read_uint(ptr, 4)?;
+                match c {
+                    PrimVal::Bytes(b) => {
+                        match ::std::char::from_u32(b as u32) {
+                            Some(ch) => PrimVal::from_char(ch),
+                            None => return Err(EvalError::InvalidChar(b as u128)),
+                        }
+                    }
+                    _ => unimplemented!(),
                 }
             }
 
@@ -1412,7 +1417,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     I128 => 16,
                     Is => self.memory.pointer_size(),
                 };
-                PrimVal::from_i128(self.memory.read_int(ptr, size)?)
+                self.memory.read_int(ptr, size)?
             }
 
             ty::TyUint(uint_ty) => {
@@ -1425,11 +1430,11 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     U128 => 16,
                     Us => self.memory.pointer_size(),
                 };
-                PrimVal::from_u128(self.memory.read_uint(ptr, size)?)
+                self.memory.read_uint(ptr, size)?
             }
 
-            ty::TyFloat(FloatTy::F32) => PrimVal::from_f32(self.memory.read_f32(ptr)?),
-            ty::TyFloat(FloatTy::F64) => PrimVal::from_f64(self.memory.read_f64(ptr)?),
+            ty::TyFloat(FloatTy::F32) => self.memory.read_f32(ptr)?,
+            ty::TyFloat(FloatTy::F64) => self.memory.read_f64(ptr)?,
 
             ty::TyFnPtr(_) => self.memory.read_ptr(ptr).map(PrimVal::Ptr)?,
             ty::TyRef(_, ref tam) |
@@ -1443,9 +1448,9 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 if let CEnum { discr, signed, .. } = *self.type_layout(ty)? {
                     let size = discr.size().bytes();
                     if signed {
-                        PrimVal::from_i128(self.memory.read_int(ptr, size)?)
+                        self.memory.read_int(ptr, size)?
                     } else {
-                        PrimVal::from_u128(self.memory.read_uint(ptr, size)?)
+                        self.memory.read_uint(ptr, size)?
                     }
                 } else {
                     return Ok(None);

@@ -9,7 +9,7 @@ use syntax::abi::Abi;
 use error::{EvalError, EvalResult};
 use eval_context::{EvalContext, IntegerExt, StackPopCleanup, is_inhabited};
 use lvalue::Lvalue;
-use memory::Pointer;
+use memory::{Pointer, SByte};
 use value::PrimVal;
 use value::Value;
 use rustc_data_structures::indexed_vec::Idx;
@@ -423,12 +423,12 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         let discr_val = match *adt_layout {
             General { discr, .. } | CEnum { discr, signed: false, .. } => {
                 let discr_size = discr.size().bytes();
-                self.memory.read_uint(adt_ptr, discr_size)?
+                self.memory.read_uint(adt_ptr, discr_size)?.to_u128()?
             }
 
             CEnum { discr, signed: true, .. } => {
                 let discr_size = discr.size().bytes();
-                self.memory.read_int(adt_ptr, discr_size)? as u128
+                self.memory.read_int(adt_ptr, discr_size)?.to_u128()?
             }
 
             RawNullablePointer { nndiscr, value } => {
@@ -457,8 +457,8 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
     fn read_nonnull_discriminant_value(&self, ptr: Pointer, nndiscr: u128, discr_size: u64) -> EvalResult<'tcx, u128> {
         trace!("read_nonnull_discriminant_value: {:?}, {}, {}", ptr, nndiscr, discr_size);
         let not_null = match self.memory.read_uint(ptr, discr_size) {
-            Ok(0) => false,
-            Ok(_) | Err(EvalError::ReadPointerAsBytes) => true,
+            Ok(p) => p.to_u64()? != 0,
+            Err(EvalError::ReadPointerAsBytes) => true,
             Err(e) => return Err(e),
         };
         assert!(nndiscr == 0 || nndiscr == 1);
@@ -515,11 +515,31 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 let n = self.value_to_primval(args[2], usize)?.to_u64()?;
 
                 let result = {
+                    use std::cmp::Ordering::*;
+
                     let left_bytes = self.memory.read_bytes(left, n)?;
                     let right_bytes = self.memory.read_bytes(right, n)?;
 
-                    use std::cmp::Ordering::*;
-                    match left_bytes.cmp(right_bytes) {
+                    let mut ordering = Equal;
+                    'stepping: for idx in 0..n as usize {
+                        match (left_bytes[idx], right_bytes[idx]) {
+                            (SByte::Concrete(c0), SByte::Concrete(c1)) => {
+                                if c0 == c1 {
+                                    continue 'stepping;
+                                } else {
+                                    if c0 < c1 {
+                                        ordering = Less;
+                                    } else {
+                                        ordering = Greater;
+                                    }
+                                    break 'stepping;
+                                }
+                            }
+                            _ => unimplemented!()
+                        }
+                    }
+
+                    match ordering {
                         Less => -1i8,
                         Equal => 0,
                         Greater => 1,
@@ -530,6 +550,8 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             }
 
             "memrchr" => {
+                unimplemented!()
+                    /*
                 let ptr = args[0].read_ptr(&self.memory)?;
                 let val = self.value_to_primval(args[1], usize)?.to_u64()? as u8;
                 let num = self.value_to_primval(args[2], usize)?.to_u64()?;
@@ -538,10 +560,12 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     self.write_value(Value::ByVal(PrimVal::Ptr(new_ptr)), dest, dest_ty)?;
                 } else {
                     self.write_value(Value::ByVal(PrimVal::Bytes(0)), dest, dest_ty)?;
-                }
+                }*/
             }
 
             "memchr" => {
+                unimplemented!()
+                /*
                 let ptr = args[0].read_ptr(&self.memory)?;
                 let val = self.value_to_primval(args[1], usize)?.to_u64()? as u8;
                 let num = self.value_to_primval(args[2], usize)?.to_u64()?;
@@ -550,7 +574,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     self.write_value(Value::ByVal(PrimVal::Ptr(new_ptr)), dest, dest_ty)?;
                 } else {
                     self.write_value(Value::ByVal(PrimVal::Bytes(0)), dest, dest_ty)?;
-                }
+                }*/
             }
 
             "getenv" => {
@@ -581,5 +605,5 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         // as if the call just completed and it's returning to the
         // current frame.
         Ok(())
-    }   
+    }
 }
