@@ -22,7 +22,7 @@ log = "0.3.6"
 log_settings = "0.1.1"
 cargo_metadata = "0.1"
 
-z3 = "0.2"
+z3 = {git = "https://github.com/dwrensha/z3-rs", branch = "extract" }
 
 [dev-dependencies]
 compiletest_rs = "0.2.5"

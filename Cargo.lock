@@ -8,7 +8,7 @@ dependencies = [
  "env_logger 0.3.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.3.7 (registry+https://github.com/rust-lang/crates.io-index)",
  "log_settings 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "z3 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "z3 0.2.0 (git+https://github.com/dwrensha/z3-rs?branch=extract)",
 ]
 
 [[package]]
@@ -236,7 +236,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 [[package]]
 name = "z3"
 version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
+source = "git+https://github.com/dwrensha/z3-rs?branch=extract#aaacc1a0784194722ff8438a15b87dd3f180c661"
 dependencies = [
  "env_logger 0.3.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "lazy_static 0.1.16 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -287,5 +287,5 @@ dependencies = [
 "checksum va_list 0.0.1 (registry+https://github.com/rust-lang/crates.io-index)" = "35dd61c2a3fd97881058e5b401d981e8647d0630c64065b2a65c329049d6b5ef"
 "checksum winapi 0.2.8 (registry+https://github.com/rust-lang/crates.io-index)" = "167dc9d6949a9b857f3451275e911c3f44255842c1f7a76f33c55103a909087a"
 "checksum winapi-build 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)" = "2d315eee3b34aca4797b2da6b13ed88266e6d612562a0c46390af8299fc699bc"
-"checksum z3 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)" = "993a7ed2f7eeb1b9fcb73abb38ba91e80ea66846d8757f6596262cf7bbd31bb0"
+"checksum z3 0.2.0 (git+https://github.com/dwrensha/z3-rs?branch=extract)" = "<none>"
 "checksum z3-sys 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "09ad369c3bebfb2b5585060ce765c1e0c4896b5a3bc58dd3870e9f73c0209b98"
