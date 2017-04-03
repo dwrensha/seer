@@ -25,6 +25,14 @@ impl <'a, 'tcx: 'a>  Executor<'a, 'tcx> {
         }
     }
 
+    pub fn push_eval_context(&mut self, ecx: EvalContext<'a, 'tcx>) {
+        self.queue.push_back(ecx);
+    }
+
+    fn pop_eval_context(&mut self) -> Option<EvalContext<'a, 'tcx>> {
+        self.queue.pop_front()
+    }
+
     pub fn eval_main(
         &mut self,
         tcx: TyCtxt<'a, 'tcx, 'tcx>,
@@ -77,13 +85,13 @@ impl <'a, 'tcx: 'a>  Executor<'a, 'tcx> {
         } else { None };
 
 
-        self.queue.push_back(ecx);
+        self.push_eval_context(ecx);
 
         loop {
-            match self.queue.pop_front() {
+            match self.pop_eval_context() {
                 Some(mut ecx) => {
                     match ecx.step(self) {
-                        Ok(true) => self.queue.push_back(ecx),
+                        Ok(true) => self.push_eval_context(ecx),
                         Ok(false) => {
                             ptr.map(|p| ecx.memory.deallocate(p).unwrap());
                             let leaks = ecx.memory.leak_report();
