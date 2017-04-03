@@ -20,6 +20,7 @@ extern crate byteorder;
 extern crate z3;
 
 mod cast;
+mod constraints;
 mod error;
 mod eval_context;
 mod executor;
