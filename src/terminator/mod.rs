@@ -8,6 +8,7 @@ use syntax::abi::Abi;
 
 use error::{EvalError, EvalResult};
 use eval_context::{EvalContext, IntegerExt, StackPopCleanup, is_inhabited};
+use executor::Executor;
 use lvalue::Lvalue;
 use memory::{Pointer, SByte};
 use value::PrimVal;
@@ -25,6 +26,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
 
     pub(super) fn eval_terminator(
         &mut self,
+        _executor: &mut Executor,
         terminator: &mir::Terminator<'tcx>,
     ) -> EvalResult<'tcx> {
         use rustc::mir::TerminatorKind::*;

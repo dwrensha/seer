@@ -29,7 +29,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
     }
 
     /// Returns true as long as there are more things to do.
-    pub fn step(&mut self, _executor: &mut Executor<'a, 'tcx>) -> EvalResult<'tcx, bool> {
+    pub fn step(&mut self, executor: &mut Executor<'a, 'tcx>) -> EvalResult<'tcx, bool> {
         // see docs on the `Memory::packed` field for why we do this
         self.memory.clear_packed();
         self.inc_step_counter_and_check_limit(1)?;
@@ -69,7 +69,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             new_constants: &mut new,
         }.visit_terminator(block, terminator, mir::Location { block, statement_index: stmt_id });
         if new? == 0 {
-            self.terminator(terminator)?;
+            self.terminator(executor, terminator)?;
         }
         // if ConstantExtractor added new frames, we don't execute anything here
         // but await the next call to step
@@ -126,9 +126,11 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         Ok(())
     }
 
-    fn terminator(&mut self, terminator: &mir::Terminator<'tcx>) -> EvalResult<'tcx> {
+    fn terminator(&mut self, executor: &mut Executor,
+                  terminator: &mir::Terminator<'tcx>) -> EvalResult<'tcx>
+    {
         trace!("{:?}", terminator.kind);
-        self.eval_terminator(terminator)?;
+        self.eval_terminator(executor, terminator)?;
         if !self.stack.is_empty() {
             trace!("// {:?}", self.frame().block);
         }
