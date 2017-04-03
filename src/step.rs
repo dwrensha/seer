@@ -13,6 +13,7 @@ use rustc::ty::{subst, self};
 
 use error::{EvalResult, EvalError};
 use eval_context::{EvalContext, StackPopCleanup, MirRef};
+use executor::Executor;
 use lvalue::{Global, GlobalId, Lvalue};
 use value::{Value, PrimVal};
 use syntax::codemap::Span;
@@ -28,7 +29,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
     }
 
     /// Returns true as long as there are more things to do.
-    pub fn step(&mut self) -> EvalResult<'tcx, bool> {
+    pub fn step(&mut self, _executor: &mut Executor<'a, 'tcx>) -> EvalResult<'tcx, bool> {
         // see docs on the `Memory::packed` field for why we do this
         self.memory.clear_packed();
         self.inc_step_counter_and_check_limit(1)?;

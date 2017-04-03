@@ -22,6 +22,7 @@ extern crate z3;
 mod cast;
 mod error;
 mod eval_context;
+mod executor;
 mod lvalue;
 mod memory;
 mod operator;

@@ -1750,8 +1750,10 @@ pub fn eval_main<'a, 'tcx: 'a>(
         Some(ptr)
     } else { None };
 
+    let mut executor = ::executor::Executor::new();
+
     loop {
-        match ecx.step() {
+        match ecx.step(&mut executor) {
             Ok(true) => {}
             Ok(false) => {
                 ptr.map(|p| ecx.memory.deallocate(p).unwrap());
