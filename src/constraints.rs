@@ -22,7 +22,7 @@ pub struct Constraint {
 }
 
 impl ConstraintContext {
-    pub fn new() -> Self {
+    pub fn _new() -> Self {
         ConstraintContext {
             variables: Vec::new(),
             constraints: Vec::new(),
@@ -32,6 +32,11 @@ impl ConstraintContext {
     pub fn _is_feasible(&self) -> bool {
         let cfg = z3::Config::new();
         let ctx = z3::Context::new(&cfg);
+
+        for (idx, bitsize) in self.variables.iter().enumerate() {
+            ctx.numbered_bitvector_const(idx as u32, *bitsize as u32);
+        }
+
         let x = ctx.named_bitvector_const("x", 8 * 1024);
         let y = x.extract(15, 8);
         let z = x.extract(7, 0);
