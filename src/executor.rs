@@ -77,7 +77,7 @@ impl <'a, 'tcx: 'a>  Executor<'a, 'tcx> {
             }
 
             let len = 11;
-            let ptr = ecx.memory.allocate(len, 8).unwrap();
+            let ptr = ecx.memory.allocate_abstract(self, len, 8).unwrap();
             let val = Value::ByValPair(PrimVal::Ptr(ptr), PrimVal::from_u128(len as u128));
             let lvalue = ecx.eval_lvalue(&mir::Lvalue::Local(mir::Local::new(1))).unwrap();
             ecx.write_value(val, lvalue, *param_type).unwrap();

@@ -6,6 +6,7 @@ use rustc::ty;
 use rustc::ty::layout::{self, TargetDataLayout};
 
 use error::{EvalError, EvalResult};
+use executor::Executor;
 use value::PrimVal;
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -215,10 +216,11 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
         Ok(ptr)
     }
 
-    pub fn allocate(&mut self, size: u64, align: u64) -> EvalResult<'tcx, Pointer> {
-        if size == 0 {
-            return Ok(Pointer::zst_ptr());
-        }
+    fn allocate_inner(&mut self, bytes: Vec<SByte>, align: u64)
+                      -> EvalResult<'tcx, Pointer>
+    {
+        let size = bytes.len() as u64;
+
         assert!(align != 0);
 
         if self.memory_size - self.memory_usage < size {
@@ -231,7 +233,7 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
         self.memory_usage += size;
         assert_eq!(size as usize as u64, size);
         let alloc = Allocation {
-            bytes: vec![SByte::Concrete(0); size as usize],
+            bytes: bytes,
             relocations: BTreeMap::new(),
             undef_mask: UndefMask::new(size),
             align,
@@ -241,6 +243,29 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
         self.next_id.0 += 1;
         self.alloc_map.insert(id, alloc);
         Ok(Pointer::new(id, 0))
+
+    }
+
+    pub fn allocate_abstract(&mut self, _executor: &mut Executor, size: u64, align: u64)
+                             -> EvalResult<'tcx, Pointer> {
+        if size == 0 {
+            return Ok(Pointer::zst_ptr());
+        }
+
+        let mut bytes = Vec::with_capacity(size as usize);
+        for _ in 0..size {
+            bytes.push(SByte::Abstract); // XXX
+        }
+
+        self.allocate_inner(bytes, align)
+    }
+
+    pub fn allocate(&mut self, size: u64, align: u64) -> EvalResult<'tcx, Pointer> {
+        if size == 0 {
+            return Ok(Pointer::zst_ptr());
+        }
+
+        self.allocate_inner(vec![SByte::Concrete(0); size as usize], align)
     }
 
     // TODO(solson): Track which allocations were returned from __rust_allocate and report an error

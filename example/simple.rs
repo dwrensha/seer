@@ -6,4 +6,12 @@ fn simple(data: &[u8]) {
     if data.len() > 12 {
         panic!()
     }
+
+    if data.len() < 1 {
+        panic!()
+    }
+
+    if data[0] == 43 {
+        panic!()
+    }
 }
