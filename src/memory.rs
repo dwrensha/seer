@@ -5,8 +5,8 @@ use std::{fmt, iter, ptr, mem, io};
 use rustc::ty;
 use rustc::ty::layout::{self, TargetDataLayout};
 
+use constraints::ConstraintContext;
 use error::{EvalError, EvalResult};
-use executor::Executor;
 use value::PrimVal;
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -166,7 +166,7 @@ pub struct Memory<'a, 'tcx> {
     /// allocations for string and bytestring literals.
     literal_alloc_cache: HashMap<Vec<u8>, AllocId>,
 
-    // next_abstract_variable: AbstractVariable,
+    pub constraints: ConstraintContext,
 }
 
 const ZST_ALLOC_ID: AllocId = AllocId(0);
@@ -185,6 +185,7 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
             packed: BTreeSet::new(),
             static_alloc: HashSet::new(),
             literal_alloc_cache: HashMap::new(),
+            constraints: ConstraintContext::new(),
         }
     }
 
@@ -246,7 +247,7 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
 
     }
 
-    pub fn allocate_abstract(&mut self, _executor: &mut Executor, size: u64, align: u64)
+    pub fn allocate_abstract(&mut self, size: u64, align: u64)
                              -> EvalResult<'tcx, Pointer> {
         if size == 0 {
             return Ok(Pointer::zst_ptr());
@@ -254,7 +255,7 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
 
         let mut bytes = Vec::with_capacity(size as usize);
         for _ in 0..size {
-            bytes.push(SByte::Abstract); // XXX
+            bytes.push(self.constraints.allocate_abstract_byte());
         }
 
         self.allocate_inner(bytes, align)

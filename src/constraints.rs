@@ -1,6 +1,7 @@
 use rustc::mir;
 use z3;
 
+use memory::SByte;
 use value::PrimValKind;
 
 #[derive(Clone, Debug)]
@@ -22,11 +23,15 @@ pub struct Constraint {
 }
 
 impl ConstraintContext {
-    pub fn _new() -> Self {
+    pub fn new() -> Self {
         ConstraintContext {
             variables: Vec::new(),
             constraints: Vec::new(),
         }
+    }
+
+    pub fn allocate_abstract_byte(&mut self) -> SByte {
+        SByte::Abstract // XXX
     }
 
     pub fn _is_feasible(&self) -> bool {
