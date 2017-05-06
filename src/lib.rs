@@ -43,7 +43,6 @@ pub use eval_context::{
     ResourceLimits,
     StackPopCleanup,
     eval_main,
-    run_mir_passes,
 };
 
 pub use lvalue::{

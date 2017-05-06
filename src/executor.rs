@@ -1,4 +1,3 @@
-use std::cell::Ref;
 use std::collections::VecDeque;
 
 use rustc::hir::def_id::DefId;
@@ -52,7 +51,7 @@ impl <'a, 'tcx: 'a>  Executor<'a, 'tcx> {
         ecx.push_stack_frame(
             instance,
             DUMMY_SP,
-            Ref::clone(&mir),
+            &mir,
             Lvalue::from_ptr(Pointer::zst_ptr()),
             StackPopCleanup::None,
         ).expect("could not allocate first stack frame");

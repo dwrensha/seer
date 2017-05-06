@@ -1,4 +1,3 @@
-use std::cell::Ref;
 use std::collections::HashMap;
 use std::fmt::Write;
 
@@ -22,7 +21,6 @@ use memory::{Memory, Pointer};
 use operator;
 use value::{PrimVal, PrimValKind, Value};
 
-pub type MirRef<'tcx> = Ref<'tcx, mir::Mir<'tcx>>;
 
 pub struct EvalContext<'a, 'tcx: 'a> {
     /// The results of the type checker, from rustc.
@@ -46,7 +44,7 @@ pub struct EvalContext<'a, 'tcx: 'a> {
     pub(crate) steps_remaining: u64,
 
     /// Drop glue for arrays and slices
-    pub(crate) seq_drop_glue: MirRef<'tcx>,
+    pub(crate) seq_drop_glue: &'tcx mir::Mir<'tcx>,
 }
 
 impl <'a, 'tcx: 'a> Clone for EvalContext<'a, 'tcx> {
@@ -58,7 +56,7 @@ impl <'a, 'tcx: 'a> Clone for EvalContext<'a, 'tcx> {
             stack: self.stack.clone(),
             stack_limit: self.stack_limit,
             steps_remaining: self.steps_remaining,
-            seq_drop_glue: Ref::clone(&self.seq_drop_glue),
+            seq_drop_glue: &self.seq_drop_glue,
         }
     }
 }
@@ -70,7 +68,7 @@ pub struct Frame<'tcx> {
     ////////////////////////////////////////////////////////////////////////////////
 
     /// The MIR for the function called on this frame.
-    pub mir: MirRef<'tcx>,
+    pub mir: &'tcx mir::Mir<'tcx>,
 
     /// The def_id and substs of the current function
     pub instance: ty::Instance<'tcx>,
@@ -110,7 +108,7 @@ pub struct Frame<'tcx> {
 impl <'tcx> Clone for Frame<'tcx> {
     fn clone(&self) -> Self {
         Frame {
-            mir: MirRef::clone(&self.mir),
+            mir: &self.mir,
             instance: self.instance,
             span: self.span,
             return_to_block: self.return_to_block.clone(),
@@ -329,8 +327,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             DUMMY_SP,
         );
         let seq_drop_glue = tcx.alloc_mir(seq_drop_glue);
-        // Perma-borrow MIR from shims to prevent mutation.
-        ::std::mem::forget(seq_drop_glue.borrow());
+
         EvalContext {
             tcx,
             memory: Memory::new(&tcx.data_layout, limits.memory_size),
@@ -338,7 +335,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             stack: Vec::new(),
             stack_limit: limits.stack_limit,
             steps_remaining: limits.step_limit,
-            seq_drop_glue: seq_drop_glue.borrow(),
+            seq_drop_glue: seq_drop_glue,
         }
     }
 
@@ -399,6 +396,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             Function(_, _)  => PrimVal::Undef,
             Array(_)     => unimplemented!(),
             Repeat(_, _) => unimplemented!(),
+            Variant(..) => unimplemented!(),
         };
 
         Ok(Value::ByVal(primval))
@@ -410,10 +408,10 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         ty.is_sized(self.tcx, &self.tcx.empty_parameter_environment(), DUMMY_SP)
     }
 
-    pub fn load_mir(&self, instance: ty::InstanceDef<'tcx>) -> EvalResult<'tcx, MirRef<'tcx>> {
+    pub fn load_mir(&self, instance: ty::InstanceDef<'tcx>) -> EvalResult<'tcx, &'tcx mir::Mir<'tcx>> {
         trace!("load mir {:?}", instance);
         match instance {
-            ty::InstanceDef::Item(def_id) => self.tcx.maybe_item_mir(def_id).ok_or_else(|| EvalError::NoMirFor(self.tcx.item_path_str(def_id))),
+            ty::InstanceDef::Item(def_id) => self.tcx.maybe_optimized_mir(def_id).ok_or_else(|| EvalError::NoMirFor(self.tcx.item_path_str(def_id))),
             _ => Ok(self.tcx.instance_mir(instance)),
         }
     }
@@ -475,7 +473,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         &mut self,
         instance: ty::Instance<'tcx>,
         span: codemap::Span,
-        mir: MirRef<'tcx>,
+        mir: &'tcx mir::Mir<'tcx>,
         return_lvalue: Lvalue<'tcx>,
         return_to_block: StackPopCleanup,
     ) -> EvalResult<'tcx> {
@@ -1475,8 +1473,8 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         self.stack.last_mut().expect("no call frames exist")
     }
 
-    pub(super) fn mir(&self) -> MirRef<'tcx> {
-        Ref::clone(&self.frame().mir)
+    pub(super) fn mir(&self) -> &'tcx mir::Mir<'tcx> {
+        self.frame().mir
     }
 
     pub(super) fn substs(&self) -> &'tcx Substs<'tcx> {
@@ -1711,32 +1709,6 @@ pub fn eval_main<'a, 'tcx: 'a>(
 ) {
     let mut executor = ::executor::Executor::new();
     executor.eval_main(tcx, def_id, limits);
-}
-
-pub fn run_mir_passes<'a, 'tcx>(tcx: TyCtxt<'a, 'tcx, 'tcx>) {
-    let mut passes = ::rustc::mir::transform::Passes::new();
-    passes.push_hook(Box::new(::rustc_mir::transform::dump_mir::DumpMir));
-    passes.push_pass(Box::new(::rustc_mir::transform::no_landing_pads::NoLandingPads));
-    passes.push_pass(Box::new(::rustc_mir::transform::simplify::SimplifyCfg::new("no-landing-pads")));
-
-    // From here on out, regions are gone.
-    passes.push_pass(Box::new(::rustc_mir::transform::erase_regions::EraseRegions));
-
-    passes.push_pass(Box::new(::rustc_mir::transform::add_call_guards::AddCallGuards));
-    passes.push_pass(Box::new(::rustc_borrowck::ElaborateDrops));
-    passes.push_pass(Box::new(::rustc_mir::transform::no_landing_pads::NoLandingPads));
-    passes.push_pass(Box::new(::rustc_mir::transform::simplify::SimplifyCfg::new("elaborate-drops")));
-
-    // No lifetime analysis based on borrowing can be done from here on out.
-    passes.push_pass(Box::new(::rustc_mir::transform::instcombine::InstCombine::new()));
-    passes.push_pass(Box::new(::rustc_mir::transform::deaggregator::Deaggregator));
-    passes.push_pass(Box::new(::rustc_mir::transform::copy_prop::CopyPropagation));
-
-    passes.push_pass(Box::new(::rustc_mir::transform::simplify::SimplifyLocals));
-    passes.push_pass(Box::new(::rustc_mir::transform::add_call_guards::AddCallGuards));
-    passes.push_pass(Box::new(::rustc_mir::transform::dump_mir::Marker("PreMiri")));
-
-    passes.run_passes(tcx);
 }
 
 // TODO(solson): Upstream these methods into rustc::ty::layout.
@@ -2001,7 +1973,7 @@ pub fn def_ty<'a, 'tcx>(tcx: TyCtxt<'a, 'tcx, 'tcx>,
                         substs: &'tcx Substs<'tcx>)
                         -> Ty<'tcx>
 {
-    let ty = tcx.item_type(def_id);
+    let ty = tcx.type_of(def_id);
     apply_param_substs(tcx, substs, &ty)
 }
 
