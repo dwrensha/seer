@@ -15,7 +15,6 @@ test = false
 test = false
 
 [dependencies]
-#byteorder = "0.4.2"
 byteorder = { git = "https://github.com/burntsushi/byteorder.git", features = ["i128"]}
 env_logger = "0.3.3"
 log = "0.3.6"
