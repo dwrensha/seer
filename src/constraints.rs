@@ -6,7 +6,10 @@ use value::PrimValKind;
 
 #[derive(Clone, Debug)]
 pub struct ConstraintContext {
+    /// Each entry represents a variable. The index is the variable ID and
+    /// the value is the number of bits in the variable.
     variables: Vec<u8>,
+
     constraints: Vec<Constraint>,
 }
 
@@ -31,6 +34,8 @@ impl ConstraintContext {
     }
 
     pub fn allocate_abstract_byte(&mut self) -> SByte {
+        let _id = self.variables.len();
+        self.variables.push(8);
         SByte::Abstract // XXX
     }
 

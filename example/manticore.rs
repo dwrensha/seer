@@ -149,5 +149,4 @@ pub fn manticore(data: &[u8]) {
     if Ok(()) == check(data) && &data[12..] == &[1,2,3,4,5,50,51,29,212] {
         panic!("found the secret code");
     }
-
 }
