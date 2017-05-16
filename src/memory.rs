@@ -23,12 +23,12 @@ impl fmt::Display for AllocId {
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub struct AbstractVariable(u32);
+pub struct AbstractVariable(pub u32);
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum SByte {
     Concrete(u8),
-    Abstract,
+    Abstract(AbstractVariable),
 }
 
 #[derive(Debug, Clone)]
@@ -774,7 +774,7 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
             SByte::Concrete(0) => Ok(PrimVal::from_bool(false)),
             SByte::Concrete(1) => Ok(PrimVal::from_bool(true)),
             SByte::Concrete(_) => Err(EvalError::InvalidBool),
-            SByte::Abstract => unimplemented!(),
+            SByte::Abstract(_) => unimplemented!(),
         }
     }
 
@@ -879,7 +879,7 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
         for sb in sbytes {
             match *sb {
                 SByte::Concrete(b) => bytes.push(b),
-                SByte::Abstract => return Ok(PrimVal::Abstract),
+                SByte::Abstract(_) => return Ok(PrimVal::Abstract),
             }
         }
 

@@ -1,7 +1,7 @@
 use rustc::mir;
 use z3;
 
-use memory::SByte;
+use memory::{AbstractVariable, SByte};
 use value::PrimValKind;
 
 #[derive(Clone, Debug)]
@@ -34,9 +34,9 @@ impl ConstraintContext {
     }
 
     pub fn allocate_abstract_byte(&mut self) -> SByte {
-        let _id = self.variables.len();
+        let id = self.variables.len() as u32;
         self.variables.push(8);
-        SByte::Abstract // XXX
+        SByte::Abstract(AbstractVariable(id))
     }
 
     pub fn _is_feasible(&self) -> bool {
