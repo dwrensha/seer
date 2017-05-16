@@ -247,6 +247,7 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
 
     }
 
+    /// Allocate `size` abstract bytes and mark them as defined.
     pub fn allocate_abstract(&mut self, size: u64, align: u64)
                              -> EvalResult<'tcx, Pointer> {
         if size == 0 {
@@ -258,7 +259,9 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
             bytes.push(self.constraints.allocate_abstract_byte());
         }
 
-        self.allocate_inner(bytes, align)
+        let ptr = self.allocate_inner(bytes, align)?;
+        self.mark_definedness(ptr, size, true)?;
+        Ok(ptr)
     }
 
     pub fn allocate(&mut self, size: u64, align: u64) -> EvalResult<'tcx, Pointer> {
