@@ -4,7 +4,7 @@
 use std::mem::transmute;
 
 use error::{EvalError, EvalResult};
-use memory::{Memory, Pointer};
+use memory::{AbstractVariable, Memory, Pointer};
 
 pub(super) fn bytes_to_f32(bytes: u128) -> f32 {
     unsafe { transmute::<u32, f32>(bytes as u32) }
@@ -53,7 +53,7 @@ pub enum PrimVal {
     Bytes(u128),
 
     /// TODO: abstract value. (Should have a variable ID associated.)
-    Abstract,
+    Abstract(AbstractVariable),
 
     /// A pointer into an `Allocation`. An `Allocation` in the `memory` module has a list of
     /// relocations, but a `PrimVal` is only large enough to contain one, so we just represent the
@@ -152,7 +152,7 @@ impl<'tcx> PrimVal {
     pub fn to_bytes(self) -> EvalResult<'tcx, u128> {
         match self {
             PrimVal::Bytes(b) => Ok(b),
-            PrimVal::Abstract => unimplemented!(),
+            PrimVal::Abstract(_) => unimplemented!(),
             PrimVal::Ptr(p) => p.to_int().map(|b| b as u128),
             PrimVal::Undef => Err(EvalError::ReadUndefBytes),
         }
@@ -161,7 +161,7 @@ impl<'tcx> PrimVal {
     pub fn to_ptr(self) -> EvalResult<'tcx, Pointer> {
         match self {
             PrimVal::Bytes(b) => Ok(Pointer::from_int(b as u64)),
-            PrimVal::Abstract => unimplemented!(),
+            PrimVal::Abstract(_) => unimplemented!(),
             PrimVal::Ptr(p) => Ok(p),
             PrimVal::Undef => Err(EvalError::ReadUndefBytes),
         }

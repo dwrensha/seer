@@ -760,7 +760,7 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
                 self.write_uint(dest, bytes & mask, size)
             }
 
-            PrimVal::Abstract => {
+            PrimVal::Abstract(_) => {
                 unimplemented!()
             }
 
@@ -879,7 +879,10 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
         for sb in sbytes {
             match *sb {
                 SByte::Concrete(b) => bytes.push(b),
-                SByte::Abstract(_) => return Ok(PrimVal::Abstract),
+                SByte::Abstract(_v) => {
+                    unimplemented!()
+                    //return Ok(PrimVal::Abstract(v)),
+                }
             }
         }
 
