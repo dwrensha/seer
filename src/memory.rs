@@ -883,8 +883,19 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
             match *sb {
                 SByte::Concrete(b) => bytes.push(b),
                 SByte::Abstract(_v) => {
-                    unimplemented!()
-                    //return Ok(PrimVal::Abstract(v)),
+                    // At least one byte is abstract.
+                    let mut result = [SByte::Concrete(0); 8];
+                    match self.endianess() {
+                        layout::Endian::Little => {
+                            for (idx, sb1) in sbytes.iter().enumerate() {
+                                result[idx] = *sb1;
+                            }
+                        }
+                        layout::Endian::Big => {
+                            unimplemented!()
+                        }
+                    }
+                    return Ok(PrimVal::Abstract(result));
                 }
             }
         }

@@ -4,7 +4,7 @@
 use std::mem::transmute;
 
 use error::{EvalError, EvalResult};
-use memory::{AbstractVariable, Memory, Pointer};
+use memory::{Memory, Pointer, SByte};
 
 pub(super) fn bytes_to_f32(bytes: u128) -> f32 {
     unsafe { transmute::<u32, f32>(bytes as u32) }
@@ -52,8 +52,8 @@ pub enum PrimVal {
     /// The raw bytes of a simple value.
     Bytes(u128),
 
-    /// TODO: abstract value. (Should have a variable ID associated.)
-    Abstract(AbstractVariable),
+    /// The bytes of an abstract value, in little endian byteorder.
+    Abstract([SByte; 8]),
 
     /// A pointer into an `Allocation`. An `Allocation` in the `memory` module has a list of
     /// relocations, but a `PrimVal` is only large enough to contain one, so we just represent the
