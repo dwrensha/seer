@@ -178,7 +178,9 @@ pub fn binary_op(
         }
 
         (PrimVal::Undef, _) | (_, PrimVal::Undef) => return Err(EvalError::ReadUndefBytes),
-        _ => unimplemented!(),
+        (PrimVal::Abstract(_), _) | (_, PrimVal::Abstract(_)) => {
+            return self.abstract_binary_op(bin_op, left, left_kind, right, right_kind);
+        }
     };
 
     // These ops can have an RHS with a different numeric type.
@@ -251,6 +253,22 @@ pub fn binary_op(
 
     Ok((val, false))
 }
+
+    pub fn abstract_binary_op(
+        &mut self,
+        bin_op: mir::BinOp,
+        left: PrimVal,
+        left_kind: PrimValKind,
+        right: PrimVal,
+        right_kind: PrimValKind,
+    ) -> EvalResult<'tcx, (PrimVal, bool)> {
+        if left_kind != right_kind {
+            let msg = format!("unimplemented binary op: {:?}, {:?}, {:?}", left, right, bin_op);
+            return Err(EvalError::Unimplemented(msg));
+        }
+        Ok((self.memory.constraints.add_binop_constraint(bin_op, left, right, left_kind), false))
+    }
+
     fn ptr_and_bytes_ops(&self, bin_op: mir::BinOp, left: Pointer, right: u128) -> EvalResult<'tcx, PrimVal> {
         use rustc::mir::BinOp::*;
         match bin_op {

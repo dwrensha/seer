@@ -41,6 +41,40 @@ impl ConstraintContext {
         SByte::Abstract(AbstractVariable(id))
     }
 
+    pub fn add_binop_constraint(
+        &mut self,
+        bin_op: mir::BinOp,
+        left: PrimVal,
+        right: PrimVal,
+        kind: PrimValKind) -> PrimVal {
+
+        use value::PrimValKind::*;
+
+        let num_bytes = match kind {
+            U8 | I8 => 1,
+            _ => unimplemented!(),
+        };
+
+
+        let mut buffer = [SByte::Concrete(0); 8];
+        for idx in 0..num_bytes {
+            buffer[idx] = self.allocate_abstract_byte();
+        }
+
+        let primval = PrimVal::Abstract(buffer);
+
+        let constraint = Constraint {
+            operator: bin_op,
+            typ: kind,
+            lhs: left,
+            rhs: right,
+        };
+
+        self.constraints.push(constraint);
+
+        primval
+    }
+
     pub fn _is_feasible(&self) -> bool {
         let cfg = z3::Config::new();
         let ctx = z3::Context::new(&cfg);
