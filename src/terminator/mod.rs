@@ -48,9 +48,13 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
 
                 for (index, const_int) in values.iter().enumerate() {
                     let prim = PrimVal::Bytes(const_int.to_u128_unchecked());
-                    if discr_prim.to_bytes()? == prim.to_bytes()? {
-                        target_block = targets[index];
-                        break;
+                    if discr_prim.is_concrete() {
+                        if discr_prim.to_bytes()? == prim.to_bytes()? {
+                            target_block = targets[index];
+                            break;
+                        }
+                    } else {
+                        unimplemented!()
                     }
                 }
 

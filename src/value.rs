@@ -125,6 +125,13 @@ impl<'a, 'tcx: 'a> Value {
 }
 
 impl<'tcx> PrimVal {
+    pub fn is_concrete(&self) -> bool {
+        match *self {
+            PrimVal::Abstract(_) => false,
+            _ => true,
+        }
+    }
+
     pub fn from_u128(n: u128) -> Self {
         PrimVal::Bytes(n)
     }
