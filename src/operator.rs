@@ -137,7 +137,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
 
 /// Returns the result of the specified operation and whether it overflowed.
 pub fn binary_op(
-    &self,
+    &mut self,
     bin_op: mir::BinOp,
     left: PrimVal,
     left_kind: PrimValKind,

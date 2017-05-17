@@ -2,7 +2,7 @@ use rustc::mir;
 use z3;
 
 use memory::{AbstractVariable, SByte};
-use value::PrimValKind;
+use value::{PrimVal, PrimValKind};
 
 #[derive(Clone, Debug)]
 pub struct ConstraintContext {
@@ -23,6 +23,8 @@ pub enum Val {
 pub struct Constraint {
     operator: mir::BinOp,
     typ: PrimValKind,
+    lhs: PrimVal,
+    rhs: PrimVal,
 }
 
 impl ConstraintContext {
