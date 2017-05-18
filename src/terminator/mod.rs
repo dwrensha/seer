@@ -45,29 +45,63 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 let discr_prim = self.value_to_primval(discr_val, discr_ty)?;
                 let discr_kind = self.ty_to_primval_kind(discr_ty)?;
 
-                // Branch to the `otherwise` case by default, if no match is found.
-                let mut target_block = targets[targets.len() - 1];
+                if discr_prim.is_concrete() {
 
-                for (index, const_int) in values.iter().enumerate() {
-                    let prim = PrimVal::Bytes(const_int.to_u128_unchecked());
-                    if discr_prim.is_concrete() {
+                    // Branch to the `otherwise` case by default, if no match is found.
+                    let mut target_block = targets[targets.len() - 1];
+
+                    for (index, const_int) in values.iter().enumerate() {
+                        let prim = PrimVal::Bytes(const_int.to_u128_unchecked());
                         if discr_prim.to_bytes()? == prim.to_bytes()? {
                             target_block = targets[index];
                             break;
                         }
-                    } else {
-                        // if there are no feasible branches, then return an error.
-                        // if there is one feasible branch, just do it.
-                        // if there are multiple feasible branches, take the first one,
-                        // and push the rest onto the queue with `self.clone()` and
-                        // `executor.push_eval_context()`
-                        // for now, don't worry about superfluous clones.
-                        Constraint::new_eq(discr_kind, discr_prim, prim);
+                    }
+
+                    self.goto_block(target_block);
+                } else {
+
+                    // if there is one feasible branch, just do it.
+                    // if there are multiple feasible branches, take the first one,
+                    // and push the rest onto the queue with `self.clone()` and
+                    // `executor.push_eval_context()`
+                    // for now, don't worry about superfluous clones.
+
+                    let mut feasible_blocks_with_constraints = Vec::new();
+                    let mut otherwise_constraints = Vec::new();
+                    for (index, const_int) in values.iter().enumerate() {
+                        let prim = PrimVal::Bytes(const_int.to_u128_unchecked());
+                        let eq_constraint = Constraint::new_eq(discr_kind, discr_prim, prim);
+                        otherwise_constraints.push(
+                            Constraint::new_eq(discr_kind, discr_prim, prim));
+                        if self.memory.constraints.is_feasible_with(&[eq_constraint]) {
+                            feasible_blocks_with_constraints.push((index, vec![eq_constraint]));
+                        }
+                    }
+
+                    if self.memory.constraints.is_feasible_with(&otherwise_constraints) {
+                        feasible_blocks_with_constraints.push(
+                            (targets.len() - 1, otherwise_constraints));
+                    }
+
+
+                    if feasible_blocks_with_constraints.is_empty() {
+                        // there are no feasible branches. return an error.
                         unimplemented!()
+                    } else {
+                        let (_my_target, _my_constraints) =
+                            feasible_blocks_with_constraints.pop().unwrap();
+                        for (other_target, other_constraints) in feasible_blocks_with_constraints {
+                            let mut other_ctxt = self.clone();
+                            for c in other_constraints {
+                                other_ctxt.memory.constraints.push_constraint(c);
+                            }
+                            other_ctxt.goto_block(targets[other_target]);
+                            // lifetime error!
+                            //executor.push_eval_context(other_ctxt);
+                        }
                     }
                 }
-
-                self.goto_block(target_block);
             }
 
             Call { ref func, ref args, ref destination, .. } => {

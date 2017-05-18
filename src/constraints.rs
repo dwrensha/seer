@@ -48,6 +48,10 @@ impl Constraint {
     pub fn new_eq(kind: PrimValKind, lhs: PrimVal, rhs: PrimVal) -> Self {
         Constraint::Eq { kind, lhs, rhs }
     }
+
+    pub fn new_neq(kind: PrimValKind, lhs: PrimVal, rhs: PrimVal) -> Self {
+        Constraint::Neq { kind, lhs, rhs }
+    }
 }
 
 impl ConstraintContext {
@@ -97,6 +101,14 @@ impl ConstraintContext {
         self.push_constraint(constraint);
 
         primval
+    }
+
+    pub fn is_feasible_with(
+        &self,
+        _constraints: &[Constraint])
+        -> bool
+    {
+        unimplemented!()
     }
 
     pub fn _is_feasible(&self) -> bool {
