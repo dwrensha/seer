@@ -6,6 +6,7 @@ use syntax::codemap::Span;
 use syntax::attr;
 use syntax::abi::Abi;
 
+use constraints::Constraint;
 use error::{EvalError, EvalResult};
 use eval_context::{EvalContext, IntegerExt, StackPopCleanup, is_inhabited};
 use executor::Executor;
@@ -42,6 +43,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 let discr_val = self.eval_operand(discr)?;
                 let discr_ty = self.operand_ty(discr);
                 let discr_prim = self.value_to_primval(discr_val, discr_ty)?;
+                let discr_kind = self.ty_to_primval_kind(discr_ty)?;
 
                 // Branch to the `otherwise` case by default, if no match is found.
                 let mut target_block = targets[targets.len() - 1];
@@ -60,6 +62,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                         // and push the rest onto the queue with `self.clone()` and
                         // `executor.push_eval_context()`
                         // for now, don't worry about superfluous clones.
+                        Constraint::new_eq(discr_kind, discr_prim, prim);
                         unimplemented!()
                     }
                 }

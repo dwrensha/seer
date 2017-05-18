@@ -28,8 +28,8 @@ pub enum Constraint {
         rhs_operand2: PrimVal,
         lhs: PrimVal,
     },
-    Eq { lhs: PrimVal, rhs: PrimVal, kind: PrimValKind },
-    Neq { lhs: PrimVal, rhs: PrimVal, kind: PrimValKind },
+    Eq { kind: PrimValKind, lhs: PrimVal, rhs: PrimVal, },
+    Neq { kind: PrimValKind, lhs: PrimVal, rhs: PrimVal, },
 }
 
 impl Constraint {
@@ -43,6 +43,10 @@ impl Constraint {
         Constraint::Binop {
             operator, kind, rhs_operand1, rhs_operand2, lhs,
         }
+    }
+
+    pub fn new_eq(kind: PrimValKind, lhs: PrimVal, rhs: PrimVal) -> Self {
+        Constraint::Eq { kind, lhs, rhs }
     }
 }
 
