@@ -54,6 +54,12 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                             break;
                         }
                     } else {
+                        // if there are no feasible branches, then return an error.
+                        // if there is one feasible branch, just do it.
+                        // if there are multiple feasible branches, take the first one,
+                        // and push the rest onto the queue with `self.clone()` and
+                        // `executor.push_eval_context()`
+                        // for now, don't worry about superfluous clones.
                         unimplemented!()
                     }
                 }

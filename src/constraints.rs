@@ -19,12 +19,23 @@ pub enum Val {
     _Constant(u128),
 }
 
-#[derive(Clone, Debug)]
-pub struct Constraint {
-    operator: mir::BinOp,
-    typ: PrimValKind,
-    lhs: PrimVal,
-    rhs: PrimVal,
+#[derive(Clone, Copy, Debug)]
+pub enum Constraint {
+    Binop {
+        operator: mir::BinOp,
+        kind: PrimValKind,
+        rhs_operand1: PrimVal,
+        rhs_operand2: PrimVal,
+        lhs: PrimVal,
+    },
+    Eq { lhs: PrimVal, rhs: PrimVal, kind: PrimValKind },
+    Neq { lhs: PrimVal, rhs: PrimVal, kind: PrimValKind },
+}
+
+impl Constraint {
+    pub fn new() -> Self {
+        unimplemented!()
+    }
 }
 
 impl ConstraintContext {
@@ -41,6 +52,8 @@ impl ConstraintContext {
         SByte::Abstract(AbstractVariable(id))
     }
 
+    /// Creates a fresh abstract PrimVal `X` and adds a constraint
+    /// `left binop right == X`. Returns `X`.
     pub fn add_binop_constraint(
         &mut self,
         bin_op: mir::BinOp,
@@ -63,12 +76,15 @@ impl ConstraintContext {
 
         let primval = PrimVal::Abstract(buffer);
 
-        let constraint = Constraint {
+        let constraint = Constraint::Binop {
             operator: bin_op,
-            typ: kind,
-            lhs: left,
-            rhs: right,
+            lhs: primval,
+            kind,
+            rhs_operand1: left,
+            rhs_operand2: right,
         };
+
+        // This is not quite right!
 
         self.constraints.push(constraint);
 

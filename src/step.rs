@@ -27,7 +27,9 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
     }
 
     /// Returns true as long as there are more things to do.
-    pub fn step(&mut self, executor: &mut Executor<'a, 'tcx>) -> EvalResult<'tcx, bool> {
+    pub fn step(&mut self, executor: &mut Executor<'a, 'tcx>)
+                -> EvalResult<'tcx, bool>
+    {
         // see docs on the `Memory::packed` field for why we do this
         self.memory.clear_packed();
         self.inc_step_counter_and_check_limit(1)?;
