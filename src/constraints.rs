@@ -33,8 +33,16 @@ pub enum Constraint {
 }
 
 impl Constraint {
-    pub fn new() -> Self {
-        unimplemented!()
+    pub fn new_binop(
+        operator: mir::BinOp,
+        kind: PrimValKind,
+        rhs_operand1: PrimVal,
+        rhs_operand2: PrimVal,
+        lhs: PrimVal,
+    ) -> Self {
+        Constraint::Binop {
+            operator, kind, rhs_operand1, rhs_operand2, lhs,
+        }
     }
 }
 
@@ -50,6 +58,10 @@ impl ConstraintContext {
         let id = self.variables.len() as u32;
         self.variables.push(8);
         SByte::Abstract(AbstractVariable(id))
+    }
+
+    pub fn push_constraint(&mut self, constraint: Constraint) {
+        self.constraints.push(constraint);
     }
 
     /// Creates a fresh abstract PrimVal `X` and adds a constraint
@@ -76,17 +88,9 @@ impl ConstraintContext {
 
         let primval = PrimVal::Abstract(buffer);
 
-        let constraint = Constraint::Binop {
-            operator: bin_op,
-            lhs: primval,
-            kind,
-            rhs_operand1: left,
-            rhs_operand2: right,
-        };
+        let constraint = Constraint::new_binop(bin_op, kind, left, right, primval);
 
-        // This is not quite right!
-
-        self.constraints.push(constraint);
+        self.push_constraint(constraint);
 
         primval
     }
