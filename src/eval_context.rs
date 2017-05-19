@@ -503,7 +503,6 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
     }
 
     pub(super) fn pop_stack_frame(&mut self) -> EvalResult<'tcx> {
-        ::log_settings::settings().indentation -= 1;
         let frame = self.stack.pop().expect("tried to pop a stack frame, but there were none");
         match frame.return_to_block {
             StackPopCleanup::MarkStatic(mutable) => if let Lvalue::Global(id) = frame.return_lvalue {

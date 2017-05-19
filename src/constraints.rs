@@ -272,6 +272,7 @@ fn mir_binop_to_ast<'a>(
         }
         mir::BinOp::Add => left.bvadd(&right),
         mir::BinOp::BitXor => left.bvxor(&right),
+        mir::BinOp::Mul => left.bvmul(&right),
         _ => {
             unimplemented!()
         }
