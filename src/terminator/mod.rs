@@ -24,6 +24,9 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         self.frame_mut().stmt = 0;
     }
 
+    // If the result is a branch on an abstract discriminant, returns a vector
+    // of the possible branches and their associated new constraints. Otherwise
+    // returns None.
     pub(super) fn eval_terminator(
         &mut self,
         terminator: &mir::Terminator<'tcx>,
@@ -58,13 +61,6 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
 
                     self.goto_block(target_block);
                 } else {
-
-                    // if there is one feasible branch, just do it.
-                    // if there are multiple feasible branches, take the first one,
-                    // and push the rest onto the queue with `self.clone()` and
-                    // `executor.push_eval_context()`
-                    // for now, don't worry about superfluous clones.
-
                     let mut feasible_blocks_with_constraints = Vec::new();
                     let mut otherwise_constraints = Vec::new();
                     for (index, const_int) in values.iter().enumerate() {
