@@ -86,43 +86,40 @@ impl <'a, 'tcx: 'a> Executor<'a, 'tcx> {
 
         self.push_eval_context(ecx);
 
-        loop {
-            match self.pop_eval_context() {
-                Some(mut ecx) => {
-                    match ecx.step() {
-                        Ok((true, None)) => {
-                            self.push_eval_context(ecx)
-                        }
-                        Ok((true, Some(branches))) => {
-                            if branches.is_empty() {
-                                // no feasible branch. should throw error
-                                unimplemented!()
-                            } else {
-                                let iter = ::std::iter::repeat(ecx).zip(branches.into_iter());
-                                for (mut cx, (block, constraints)) in iter {
-                                    for constraint in constraints {
-                                        cx.memory.constraints.push_constraint(constraint);
-                                        cx.goto_block(block);
-                                    }
-                                    self.push_eval_context(cx);
-                                }
+        while let Some(mut ecx) = self.pop_eval_context() {
+            match ecx.step() {
+                Ok((true, None)) => {
+                    self.push_eval_context(ecx)
+                }
+                Ok((true, Some(branches))) => {
+                    if branches.is_empty() {
+                        // no feasible branch. should throw error
+                        unimplemented!()
+                    } else {
+                        let iter = ::std::iter::repeat(ecx).zip(branches.into_iter());
+                        for (mut cx, (block, constraints)) in iter {
+                            for constraint in constraints {
+                                cx.memory.constraints.push_constraint(constraint);
+                                cx.goto_block(block);
                             }
-                        }
-                        Ok((false, _)) => {
-                            ptr.map(|p| ecx.memory.deallocate(p).unwrap());
-                            let leaks = ecx.memory.leak_report();
-                            if leaks != 0 {
-                                tcx.sess.err("the evaluated program leaked memory");
-                            }
-                            return;
-                        }
-                        Err(e) => {
-                            report(tcx, &ecx, e);
-                            return;
+                            self.push_eval_context(cx);
                         }
                     }
                 }
-                None => break,
+                Ok((false, _)) => {
+                    println!("DONE");
+                    ecx.memory.constraints.dump_constraints();
+                    ptr.map(|p| ecx.memory.deallocate(p).unwrap());
+                    let leaks = ecx.memory.leak_report();
+                    if leaks != 0 {
+                        tcx.sess.err("the evaluated program leaked memory");
+                    }
+                }
+                Err(e) => {
+                    println!("got an error! {:?}", e);
+                    ecx.memory.constraints.dump_constraints();
+//                    report(tcx, &ecx, e);
+                }
             }
         }
     }

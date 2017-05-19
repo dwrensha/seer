@@ -103,6 +103,30 @@ impl ConstraintContext {
         primval
     }
 
+    pub fn dump_constraints(&self) {
+        let cfg = z3::Config::new();
+        let ctx = z3::Context::new(&cfg);
+        let solver = z3::Solver::new(&ctx);
+
+        let mut consts = Vec::new();
+
+        for (idx, bitsize) in self.variables.iter().enumerate() {
+            consts.push(ctx.numbered_bitvector_const(idx as u32, *bitsize as u32));
+        }
+
+        for c in &self.constraints {
+            solver.assert(&constraint_to_ast(&ctx, *c));
+        }
+
+        let sat = solver.check();
+        println!("sat? {}", sat);
+        let model = solver.get_model();
+        for idx in 0..consts.len() {
+            let x = model.eval(&consts[idx]).unwrap().as_u64().expect("1");
+            println!(" _{} = {}", idx, x)
+        }
+    }
+
     pub fn is_feasible_with(
         &self,
         constraints: &[Constraint])
@@ -118,7 +142,6 @@ impl ConstraintContext {
             consts.push(ctx.numbered_bitvector_const(idx as u32, *bitsize as u32));
         }
 
-
         let mut all_constraints: Vec<Constraint> = Vec::new();
         all_constraints.extend(self.constraints.iter().clone());
         all_constraints.extend(constraints.iter().clone());
@@ -126,40 +149,10 @@ impl ConstraintContext {
         println!("is feasible with {:?}?", all_constraints);
 
         for c in all_constraints {
-            match c {
-                Constraint::Binop { operator, kind, lhs, rhs_operand1,
-                                    rhs_operand2, .. } => {
-                    solver.assert(
-                        &primval_to_ast(&ctx, lhs, kind, &consts)._eq(
-                            &mir_binop_to_ast(
-                                &ctx,
-                                operator,
-                                primval_to_ast(&ctx, rhs_operand1, kind, &consts),
-                                primval_to_ast(&ctx, rhs_operand2, kind, &consts))))
-                }
-                Constraint::Eq { lhs, rhs, .. } => {
-                    solver.assert(
-                        &primval_to_ast(&ctx, lhs, PrimValKind::U8, &consts)._eq( // HACK
-                            &primval_to_ast(&ctx, rhs, PrimValKind::U8, &consts)));
-                }
-                Constraint::Neq { lhs, rhs, .. } => {
-                    solver.assert(
-                        &primval_to_ast(&ctx, lhs, PrimValKind::U8, &consts)._eq( // HACK
-                            &primval_to_ast(&ctx, rhs, PrimValKind::U8, &consts)).not());
-                }
-            }
+            solver.assert(&constraint_to_ast(&ctx, c));
         }
 
-        //solver.assert(&consts[0]._eq(&z3::Ast::bv_from_u64(&ctx, 12, 8)));
-        let sat = solver.check();
-        println!("sat? {}", sat);
-        let model = solver.get_model();
-        for idx in 0..consts.len() {
-            let x = model.eval(&consts[idx]).unwrap().as_u64().expect("1");
-            println!(" _{} = {}", idx, x)
-        }
-
-        unimplemented!()
+        solver.check()
     }
 
     pub fn _is_feasible(&self) -> bool {
@@ -201,10 +194,35 @@ impl ConstraintContext {
     }
 }
 
+fn constraint_to_ast<'a>(
+    ctx: &'a z3::Context,
+    constraint: Constraint)
+    -> z3::Ast<'a>
+{
+    match constraint {
+        Constraint::Binop { operator, kind, lhs, rhs_operand1,
+                            rhs_operand2, .. } => {
+            primval_to_ast(&ctx, lhs, kind)._eq(
+                &mir_binop_to_ast(
+                    &ctx,
+                    operator,
+                    primval_to_ast(&ctx, rhs_operand1, kind),
+                    primval_to_ast(&ctx, rhs_operand2, kind)))
+        }
+        Constraint::Eq { lhs, rhs, .. } => {
+            primval_to_ast(&ctx, lhs, PrimValKind::U8)._eq( // HACK
+                &primval_to_ast(&ctx, rhs, PrimValKind::U8))
+        }
+        Constraint::Neq { lhs, rhs, .. } => {
+            primval_to_ast(&ctx, lhs, PrimValKind::U8)._eq( // HACK
+                &primval_to_ast(&ctx, rhs, PrimValKind::U8)).not()
+        }
+    }
+}
+
 fn primval_to_ast<'a>(ctx: &'a z3::Context,
                       primval: PrimVal,
-                      kind: PrimValKind,
-                      _consts: &[z3::Ast<'a>])
+                      kind: PrimValKind)
                   -> z3::Ast<'a>
 {
     match primval {
