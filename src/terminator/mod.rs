@@ -9,7 +9,6 @@ use syntax::abi::Abi;
 use constraints::Constraint;
 use error::{EvalError, EvalResult};
 use eval_context::{EvalContext, IntegerExt, StackPopCleanup, is_inhabited};
-use executor::Executor;
 use lvalue::Lvalue;
 use memory::{Pointer, SByte};
 use value::PrimVal;
@@ -27,9 +26,8 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
 
     pub(super) fn eval_terminator(
         &mut self,
-        _executor: &mut Executor,
         terminator: &mir::Terminator<'tcx>,
-    ) -> EvalResult<'tcx> {
+    ) -> EvalResult<'tcx, Option<Vec<(mir::BasicBlock, Vec<Constraint>)>>> {
         use rustc::mir::TerminatorKind::*;
         match terminator.kind {
             Return => {
@@ -75,32 +73,17 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                         otherwise_constraints.push(
                             Constraint::new_eq(discr_kind, discr_prim, prim));
                         if self.memory.constraints.is_feasible_with(&[eq_constraint]) {
-                            feasible_blocks_with_constraints.push((index, vec![eq_constraint]));
+                            feasible_blocks_with_constraints.push(
+                                (targets[index], vec![eq_constraint]));
                         }
                     }
 
                     if self.memory.constraints.is_feasible_with(&otherwise_constraints) {
                         feasible_blocks_with_constraints.push(
-                            (targets.len() - 1, otherwise_constraints));
+                            (targets[targets.len() - 1], otherwise_constraints));
                     }
 
-
-                    if feasible_blocks_with_constraints.is_empty() {
-                        // there are no feasible branches. return an error.
-                        unimplemented!()
-                    } else {
-                        let (_my_target, _my_constraints) =
-                            feasible_blocks_with_constraints.pop().unwrap();
-                        for (other_target, other_constraints) in feasible_blocks_with_constraints {
-                            let mut other_ctxt = self.clone();
-                            for c in other_constraints {
-                                other_ctxt.memory.constraints.push_constraint(c);
-                            }
-                            other_ctxt.goto_block(targets[other_target]);
-                            // lifetime error!
-                            //executor.push_eval_context(other_ctxt);
-                        }
-                    }
+                    return Ok(Some(feasible_blocks_with_constraints));
                 }
             }
 
@@ -184,7 +167,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             Unreachable => return Err(EvalError::Unreachable),
         }
 
-        Ok(())
+        Ok(None)
     }
 
     fn eval_fn_call(

@@ -9,9 +9,9 @@ use rustc::mir;
 use rustc::ty::layout::Layout;
 use rustc::ty::{subst, self};
 
+use constraints::Constraint;
 use error::{EvalResult, EvalError};
 use eval_context::{EvalContext, StackPopCleanup};
-use executor::Executor;
 use lvalue::{Global, GlobalId, Lvalue};
 use value::{Value, PrimVal};
 use syntax::codemap::Span;
@@ -27,14 +27,14 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
     }
 
     /// Returns true as long as there are more things to do.
-    pub fn step(&mut self, executor: &mut Executor<'a, 'tcx>)
-                -> EvalResult<'tcx, bool>
+    pub fn step(&mut self)
+                -> EvalResult<'tcx, (bool, Option<Vec<(mir::BasicBlock, Vec<Constraint>)>>)>
     {
         // see docs on the `Memory::packed` field for why we do this
         self.memory.clear_packed();
         self.inc_step_counter_and_check_limit(1)?;
         if self.stack.is_empty() {
-            return Ok(false);
+            return Ok((false, None));
         }
 
         let block = self.frame().block;
@@ -56,7 +56,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             }
             // if ConstantExtractor added new frames, we don't execute anything here
             // but await the next call to step
-            return Ok(true);
+            return Ok((true, None));
         }
 
         let terminator = basic_block.terminator();
@@ -69,11 +69,12 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             new_constants: &mut new,
         }.visit_terminator(block, terminator, mir::Location { block, statement_index: stmt_id });
         if new? == 0 {
-            self.terminator(executor, terminator)?;
+            Ok((true, self.terminator(terminator)?))
+        } else {
+            // if ConstantExtractor added new frames, we don't execute anything here
+            // but await the next call to step
+            Ok((true, None))
         }
-        // if ConstantExtractor added new frames, we don't execute anything here
-        // but await the next call to step
-        Ok(true)
     }
 
     fn statement(&mut self, stmt: &mir::Statement<'tcx>) -> EvalResult<'tcx> {
@@ -126,15 +127,16 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         Ok(())
     }
 
-    fn terminator(&mut self, executor: &mut Executor,
-                  terminator: &mir::Terminator<'tcx>) -> EvalResult<'tcx>
+    fn terminator(&mut self,
+                  terminator: &mir::Terminator<'tcx>)
+                  -> EvalResult<'tcx, Option<Vec<(mir::BasicBlock, Vec<Constraint>)>>>
     {
         trace!("{:?}", terminator.kind);
-        self.eval_terminator(executor, terminator)?;
+        let result = self.eval_terminator(terminator)?;
         if !self.stack.is_empty() {
             trace!("// {:?}", self.frame().block);
         }
-        Ok(())
+        Ok(result)
     }
 }
 

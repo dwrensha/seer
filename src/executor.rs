@@ -17,7 +17,7 @@ pub struct Executor<'a, 'tcx: 'a> {
     queue: VecDeque<EvalContext<'a, 'tcx>>,
 }
 
-impl <'a, 'tcx: 'a>  Executor<'a, 'tcx> {
+impl <'a, 'tcx: 'a> Executor<'a, 'tcx> {
     pub fn new() -> Self {
         Executor {
             queue: VecDeque::new(),
@@ -89,9 +89,26 @@ impl <'a, 'tcx: 'a>  Executor<'a, 'tcx> {
         loop {
             match self.pop_eval_context() {
                 Some(mut ecx) => {
-                    match ecx.step(self) {
-                        Ok(true) => self.push_eval_context(ecx),
-                        Ok(false) => {
+                    match ecx.step() {
+                        Ok((true, None)) => {
+                            self.push_eval_context(ecx)
+                        }
+                        Ok((true, Some(branches))) => {
+                            if branches.is_empty() {
+                                // no feasible branch. should throw error
+                                unimplemented!()
+                            } else {
+                                let iter = ::std::iter::repeat(ecx).zip(branches.into_iter());
+                                for (mut cx, (block, constraints)) in iter {
+                                    for constraint in constraints {
+                                        cx.memory.constraints.push_constraint(constraint);
+                                        cx.goto_block(block);
+                                    }
+                                    self.push_eval_context(cx);
+                                }
+                            }
+                        }
+                        Ok((false, _)) => {
                             ptr.map(|p| ecx.memory.deallocate(p).unwrap());
                             let leaks = ecx.memory.leak_report();
                             if leaks != 0 {
