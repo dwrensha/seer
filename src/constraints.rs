@@ -110,10 +110,12 @@ impl ConstraintContext {
     {
         let cfg = z3::Config::new();
         let ctx = z3::Context::new(&cfg);
-        let _solver = z3::Solver::new(&ctx);
+        let solver = z3::Solver::new(&ctx);
+
+        let mut consts = Vec::new();
 
         for (idx, bitsize) in self.variables.iter().enumerate() {
-            ctx.numbered_bitvector_const(idx as u32, *bitsize as u32);
+            consts.push(ctx.numbered_bitvector_const(idx as u32, *bitsize as u32));
         }
 
 
@@ -123,14 +125,22 @@ impl ConstraintContext {
 
         println!("is feasible with {:?}?", all_constraints);
 
+        //solver.assert(&consts[0]._eq(&z3::Ast::bv_from_u64(&ctx, 12, 8)));
+        //solver.check();
+        //let model = solver.get_model();
+        //let x = model.eval(&consts[0]).unwrap().as_i64().expect("1");
+        //println!(" x = {}", x);
+
         for c in all_constraints {
             match c {
-                Constraint::Binop { kind, .. } => {
-                    if let PrimValKind::U8 = kind {
-                        unimplemented!()
-                    } else {
-                        unimplemented!()
-                    }
+                Constraint::Binop { operator, kind, lhs, rhs_operand1,
+                                    rhs_operand2, .. } => {
+                    solver.assert(
+                        &primval_to_ast(&ctx, lhs, kind, &consts)._eq(
+                            &mir_binop_to_ast(
+                                operator,
+                                primval_to_ast(&ctx, rhs_operand1, kind, &consts),
+                                primval_to_ast(&ctx, rhs_operand2, kind, &consts))))
                 }
                 _ => {
                     unimplemented!()
@@ -177,5 +187,58 @@ impl ConstraintContext {
         println!("z1: {:x}", zv1);
 
         false
+    }
+}
+
+fn primval_to_ast<'a>(ctx: &'a z3::Context,
+                      primval: PrimVal,
+                      kind: PrimValKind,
+                      consts: &[z3::Ast<'a>])
+                  -> z3::Ast<'a>
+{
+    match primval {
+        PrimVal::Undef => {
+            unimplemented!()
+        }
+        PrimVal::Ptr(_) => {
+            unimplemented!()
+        }
+        PrimVal::Abstract(sbytes) => {
+            if let PrimValKind::U8 = kind {
+                match sbytes[0] {
+                    SByte::Abstract(b) => {
+                        ctx.numbered_bitvector_const(b.0, 8)
+                    }
+                    SByte::Concrete(b) => {
+                        unimplemented!()
+                    }
+                }
+            } else {
+                unimplemented!()
+            }
+        }
+        PrimVal::Bytes(v) => {
+            if let PrimValKind::U8 = kind {
+                z3::Ast::bv_from_u64(&ctx, v as u64, 8)
+            } else {
+                unimplemented!()
+            }
+        }
+    }
+}
+
+fn mir_binop_to_ast<'a>(
+    operator: mir::BinOp,
+    left: z3::Ast<'a>,
+    right: z3::Ast<'a>)
+    -> z3::Ast<'a>
+{
+    match operator {
+        mir::BinOp::Eq => {
+            left._eq(&right)
+        }
+        _ => {
+            unimplemented!()
+        }
     }
 }
