@@ -35,10 +35,14 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         match terminator.kind {
             Return => {
                 self.dump_local(self.frame().return_lvalue);
-                self.pop_stack_frame()?
+                self.pop_stack_frame()?;
+                Ok(None)
             }
 
-            Goto { target } => self.goto_block(target),
+            Goto { target } => {
+                self.goto_block(target);
+                Ok(None)
+            },
 
             SwitchInt { ref discr, ref values, ref targets, .. } => {
                 let discr_val = self.eval_operand(discr)?;
@@ -60,6 +64,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     }
 
                     self.goto_block(target_block);
+                    Ok(None)
                 } else {
                     let mut feasible_blocks_with_constraints = Vec::new();
                     let mut otherwise_constraints = Vec::new();
@@ -79,7 +84,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                             (targets[targets.len() - 1], otherwise_constraints));
                     }
 
-                    return Ok(Some(feasible_blocks_with_constraints));
+                    Ok(Some(feasible_blocks_with_constraints))
                 }
             }
 
@@ -123,6 +128,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 };
                 let sig = self.erase_lifetimes(&sig);
                 self.eval_fn_call(fn_def, destination, args, terminator.source_info.span, sig)?;
+                Ok(None)
             }
 
             Drop { ref location, target, .. } => {
@@ -134,14 +140,16 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
 
                 let instance = ::eval_context::resolve_drop_in_place(self.tcx, ty);
                 self.drop_lvalue(lval, instance, ty, terminator.source_info.span)?;
+                Ok(None)
             }
 
             Assert { ref cond, expected, ref msg, target, .. } => {
                 let cond_val = self.eval_operand_to_primval(cond)?.to_bool()?;
                 if expected == cond_val {
                     self.goto_block(target);
+                    Ok(None)
                 } else {
-                    return match *msg {
+                    match *msg {
                         mir::AssertMessage::BoundsCheck { ref len, ref index } => {
                             let span = terminator.source_info.span;
                             let len = self.eval_operand_to_primval(len)
@@ -160,10 +168,8 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
 
             DropAndReplace { .. } => unimplemented!(),
             Resume => unimplemented!(),
-            Unreachable => return Err(EvalError::Unreachable),
+            Unreachable => Err(EvalError::Unreachable),
         }
-
-        Ok(None)
     }
 
     fn eval_fn_call(

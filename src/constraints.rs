@@ -146,8 +146,6 @@ impl ConstraintContext {
         all_constraints.extend(self.constraints.iter().clone());
         all_constraints.extend(constraints.iter().clone());
 
-        println!("is feasible with {:?}?", all_constraints);
-
         for c in all_constraints {
             solver.assert(&constraint_to_ast(&ctx, c));
         }
@@ -263,7 +261,6 @@ fn mir_binop_to_ast<'a>(
     right: z3::Ast<'a>)
     -> z3::Ast<'a>
 {
-    println!("op {:?}", operator);
     match operator {
         mir::BinOp::Eq => {
             left._eq(&right)
