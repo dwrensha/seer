@@ -67,7 +67,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                         let prim = PrimVal::Bytes(const_int.to_u128_unchecked());
                         let eq_constraint = Constraint::new_eq(discr_kind, discr_prim, prim);
                         otherwise_constraints.push(
-                            Constraint::new_eq(discr_kind, discr_prim, prim));
+                            Constraint::new_neq(discr_kind, discr_prim, prim));
                         if self.memory.constraints.is_feasible_with(&[eq_constraint]) {
                             feasible_blocks_with_constraints.push(
                                 (targets[index], vec![eq_constraint]));

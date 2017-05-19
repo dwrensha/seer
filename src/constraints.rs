@@ -137,13 +137,15 @@ impl ConstraintContext {
                                 primval_to_ast(&ctx, rhs_operand1, kind, &consts),
                                 primval_to_ast(&ctx, rhs_operand2, kind, &consts))))
                 }
-                Constraint::Eq { kind, lhs, rhs } => {
+                Constraint::Eq { lhs, rhs, .. } => {
                     solver.assert(
                         &primval_to_ast(&ctx, lhs, PrimValKind::U8, &consts)._eq( // HACK
                             &primval_to_ast(&ctx, rhs, PrimValKind::U8, &consts)));
                 }
-                _ => {
-                    unimplemented!()
+                Constraint::Neq { lhs, rhs, .. } => {
+                    solver.assert(
+                        &primval_to_ast(&ctx, lhs, PrimValKind::U8, &consts)._eq( // HACK
+                            &primval_to_ast(&ctx, rhs, PrimValKind::U8, &consts)).not());
                 }
             }
         }
