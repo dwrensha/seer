@@ -75,7 +75,7 @@ impl <'a, 'tcx: 'a> Executor<'a, 'tcx> {
                 _ => panic!("nope. the arg needs to be a &[u8]"),
             }
 
-            let len = 11;
+            let len = 21;
             let ptr = ecx.memory.allocate_abstract(len, 8).unwrap();
             let val = Value::ByValPair(PrimVal::Ptr(ptr), PrimVal::from_u128(len as u128));
             let lvalue = ecx.eval_lvalue(&mir::Lvalue::Local(mir::Local::new(1))).unwrap();

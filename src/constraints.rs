@@ -263,12 +263,15 @@ fn mir_binop_to_ast<'a>(
     right: z3::Ast<'a>)
     -> z3::Ast<'a>
 {
+    println!("op {:?}", operator);
     match operator {
         mir::BinOp::Eq => {
             left._eq(&right)
                 .ite(&z3::Ast::bv_from_u64(&ctx, 1, 8), /// HACK
                      &z3::Ast::bv_from_u64(&ctx, 0, 8))
         }
+        mir::BinOp::Add => left.bvadd(&right),
+        mir::BinOp::BitXor => left.bvxor(&right),
         _ => {
             unimplemented!()
         }
