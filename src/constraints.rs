@@ -125,12 +125,6 @@ impl ConstraintContext {
 
         println!("is feasible with {:?}?", all_constraints);
 
-        //solver.assert(&consts[0]._eq(&z3::Ast::bv_from_u64(&ctx, 12, 8)));
-        //solver.check();
-        //let model = solver.get_model();
-        //let x = model.eval(&consts[0]).unwrap().as_i64().expect("1");
-        //println!(" x = {}", x);
-
         for c in all_constraints {
             match c {
                 Constraint::Binop { operator, kind, lhs, rhs_operand1,
@@ -138,14 +132,29 @@ impl ConstraintContext {
                     solver.assert(
                         &primval_to_ast(&ctx, lhs, kind, &consts)._eq(
                             &mir_binop_to_ast(
+                                &ctx,
                                 operator,
                                 primval_to_ast(&ctx, rhs_operand1, kind, &consts),
                                 primval_to_ast(&ctx, rhs_operand2, kind, &consts))))
+                }
+                Constraint::Eq { kind, lhs, rhs } => {
+                    solver.assert(
+                        &primval_to_ast(&ctx, lhs, PrimValKind::U8, &consts)._eq( // HACK
+                            &primval_to_ast(&ctx, rhs, PrimValKind::U8, &consts)));
                 }
                 _ => {
                     unimplemented!()
                 }
             }
+        }
+
+        //solver.assert(&consts[0]._eq(&z3::Ast::bv_from_u64(&ctx, 12, 8)));
+        let sat = solver.check();
+        println!("sat? {}", sat);
+        let model = solver.get_model();
+        for idx in 0..consts.len() {
+            let x = model.eval(&consts[idx]).unwrap().as_u64().expect("1");
+            println!(" _{} = {}", idx, x)
         }
 
         unimplemented!()
@@ -193,7 +202,7 @@ impl ConstraintContext {
 fn primval_to_ast<'a>(ctx: &'a z3::Context,
                       primval: PrimVal,
                       kind: PrimValKind,
-                      consts: &[z3::Ast<'a>])
+                      _consts: &[z3::Ast<'a>])
                   -> z3::Ast<'a>
 {
     match primval {
@@ -209,7 +218,7 @@ fn primval_to_ast<'a>(ctx: &'a z3::Context,
                     SByte::Abstract(b) => {
                         ctx.numbered_bitvector_const(b.0, 8)
                     }
-                    SByte::Concrete(b) => {
+                    SByte::Concrete(_b) => {
                         unimplemented!()
                     }
                 }
@@ -228,6 +237,7 @@ fn primval_to_ast<'a>(ctx: &'a z3::Context,
 }
 
 fn mir_binop_to_ast<'a>(
+    ctx: &'a z3::Context,
     operator: mir::BinOp,
     left: z3::Ast<'a>,
     right: z3::Ast<'a>)
@@ -236,6 +246,8 @@ fn mir_binop_to_ast<'a>(
     match operator {
         mir::BinOp::Eq => {
             left._eq(&right)
+                .ite(&z3::Ast::bv_from_u64(&ctx, 1, 8), /// HACK
+                     &z3::Ast::bv_from_u64(&ctx, 0, 8))
         }
         _ => {
             unimplemented!()
