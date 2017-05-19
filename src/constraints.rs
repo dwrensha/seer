@@ -105,9 +105,39 @@ impl ConstraintContext {
 
     pub fn is_feasible_with(
         &self,
-        _constraints: &[Constraint])
+        constraints: &[Constraint])
         -> bool
     {
+        let cfg = z3::Config::new();
+        let ctx = z3::Context::new(&cfg);
+        let _solver = z3::Solver::new(&ctx);
+
+        for (idx, bitsize) in self.variables.iter().enumerate() {
+            ctx.numbered_bitvector_const(idx as u32, *bitsize as u32);
+        }
+
+
+        let mut all_constraints: Vec<Constraint> = Vec::new();
+        all_constraints.extend(self.constraints.iter().clone());
+        all_constraints.extend(constraints.iter().clone());
+
+        println!("is feasible with {:?}?", all_constraints);
+
+        for c in all_constraints {
+            match c {
+                Constraint::Binop { kind, .. } => {
+                    if let PrimValKind::U8 = kind {
+                        unimplemented!()
+                    } else {
+                        unimplemented!()
+                    }
+                }
+                _ => {
+                    unimplemented!()
+                }
+            }
+        }
+
         unimplemented!()
     }
 
