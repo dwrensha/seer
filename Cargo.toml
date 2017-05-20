@@ -7,9 +7,13 @@ version = "0.0.0"
 
 [[bin]]
 doc = false
-name = "seer"
+name = "run_main"
 test = false
 
+[[bin]]
+doc = false
+name = "run_symbolic"
+test = false
 
 [lib]
 test = false

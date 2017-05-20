@@ -10,7 +10,7 @@ fn compile_fail(sysroot: &Path) {
         config.host_rustcflags = Some(flags.clone());
         config.mode = "compile-fail".parse().expect("Invalid mode");
         config.run_lib_path = Path::new(sysroot).join("lib").join("rustlib").join(&target).join("lib");
-        config.rustc_path = "target/debug/seer".into();
+        config.rustc_path = "target/debug/run_main".into();
         config.src_base = PathBuf::from("tests/compile-fail".to_string());
         config.target = target.to_owned();
         config.target_rustcflags = Some(flags.clone());
@@ -33,7 +33,7 @@ fn miri_pass(path: &str, target: &str, host: &str) {
     config.src_base = PathBuf::from(path);
     config.target = target.to_owned();
     config.host = host.to_owned();
-    config.rustc_path = PathBuf::from("target/debug/seer");
+    config.rustc_path = PathBuf::from("target/debug/run_main");
     // don't actually execute the final binary, it might be for other targets and we only care
     // about running miri, not the binary.
     config.runtool = Some("echo \"\" || ".to_owned());

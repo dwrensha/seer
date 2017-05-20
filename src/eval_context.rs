@@ -1702,15 +1702,6 @@ impl<'tcx> Frame<'tcx> {
     }
 }
 
-pub fn eval_main<'a, 'tcx: 'a>(
-    tcx: TyCtxt<'a, 'tcx, 'tcx>,
-    def_id: DefId,
-    limits: ResourceLimits,
-) {
-    let mut executor = ::executor::Executor::new();
-    executor.eval_main(tcx, def_id, limits);
-}
-
 // TODO(solson): Upstream these methods into rustc::ty::layout.
 
 pub(super) trait IntegerExt {

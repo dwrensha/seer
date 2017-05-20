@@ -1,25 +1,22 @@
-#![feature(rustc_private, i128_type)]
-
-extern crate getopts;
-extern crate seer;
-extern crate rustc;
-extern crate rustc_driver;
-extern crate rustc_errors;
-extern crate env_logger;
-extern crate log_settings;
-extern crate syntax;
-extern crate log;
-
+use getopts;
 use rustc::session::Session;
-use rustc_driver::{Compilation, CompilerCalls, RustcDefaultCalls};
+use rustc_driver::{self, Compilation, CompilerCalls, RustcDefaultCalls};
 use rustc_driver::driver::{CompileState, CompileController};
+use rustc_errors;
 use rustc::session::config::{self, Input, ErrorOutputType};
 use rustc::hir::{self, itemlikevisit};
 use rustc::ty::TyCtxt;
+use syntax;
 use syntax::ast::{MetaItemKind, NestedMetaItemKind, self};
 use std::path::PathBuf;
+use std;
 
-struct SeerCompilerCalls(RustcDefaultCalls);
+pub enum Mode {
+    RunMain,
+    RunSymbolic,
+}
+
+struct SeerCompilerCalls(RustcDefaultCalls, Mode);
 
 impl<'a> CompilerCalls<'a> for SeerCompilerCalls {
     fn early_callback(
@@ -56,7 +53,10 @@ impl<'a> CompilerCalls<'a> for SeerCompilerCalls {
     fn build_controller(&mut self, sess: &Session, matches: &getopts::Matches) -> CompileController<'a> {
         let mut control = self.0.build_controller(sess, matches);
         control.after_hir_lowering.callback = Box::new(after_hir_lowering);
-        control.after_analysis.callback = Box::new(after_analysis);
+        control.after_analysis.callback = match self.1 {
+            Mode::RunMain => Box::new(after_analysis_run_main),
+            Mode::RunSymbolic => Box::new(after_analysis_run_symbolic),
+        };
         if std::env::var("MIRI_HOST_TARGET") != Ok("yes".to_owned()) {
             // only fully compile targets on the host
             control.after_analysis.stop = Compilation::Stop;
@@ -70,42 +70,50 @@ fn after_hir_lowering(state: &mut CompileState) {
     state.session.plugin_attributes.borrow_mut().push(attr);
 }
 
-fn after_analysis<'a, 'tcx>(state: &mut CompileState<'a, 'tcx>) {
+fn after_analysis_run_main<'a, 'tcx>(state: &mut CompileState<'a, 'tcx>) {
     state.session.abort_if_errors();
 
     let tcx = state.tcx.unwrap();
     let limits = resource_limits_from_attributes(state);
 
-    if std::env::args().any(|arg| arg == "--test") {
-        struct Visitor<'a, 'tcx: 'a>(seer::ResourceLimits, TyCtxt<'a, 'tcx, 'tcx>, &'a CompileState<'a, 'tcx>);
-        impl<'a, 'tcx: 'a, 'hir> itemlikevisit::ItemLikeVisitor<'hir> for Visitor<'a, 'tcx> {
-            fn visit_item(&mut self, i: &'hir hir::Item) {
-                if let hir::Item_::ItemFn(_, _, _, _, _, body_id) = i.node {
-                    if i.attrs.iter().any(|attr| attr.name().map_or(false, |n| n == "symbolic_execution_entry_point")) {
-                        let did = self.1.hir.body_owner_def_id(body_id);
-                        seer::eval_main(self.1, did, self.0);
-                        self.2.session.abort_if_errors();
-                    }
-                }
-            }
-            fn visit_trait_item(&mut self, _trait_item: &'hir hir::TraitItem) {}
-            fn visit_impl_item(&mut self, _impl_item: &'hir hir::ImplItem) {}
-        }
-        state.hir_crate.unwrap().visit_all_item_likes(&mut Visitor(limits, tcx, state));
-    } else {
-        if let Some((entry_node_id, _)) = *state.session.entry_fn.borrow() {
-            let entry_def_id = tcx.hir.local_def_id(entry_node_id);
-            seer::eval_main(tcx, entry_def_id, limits);
+    if let Some((entry_node_id, _)) = *state.session.entry_fn.borrow() {
+        let entry_def_id = tcx.hir.local_def_id(entry_node_id);
 
-            state.session.abort_if_errors();
-        } else {
-            println!("no main function found, assuming auxiliary build");
-        }
+        let mut executor = ::executor::Executor::new();
+        executor.eval_main(tcx, entry_def_id, limits);
+
+        state.session.abort_if_errors();
+    } else {
+        println!("no main function found, assuming auxiliary build");
     }
 }
 
-fn resource_limits_from_attributes(state: &CompileState) -> seer::ResourceLimits {
-    let mut limits = seer::ResourceLimits::default();
+fn after_analysis_run_symbolic<'a, 'tcx>(state: &mut CompileState<'a, 'tcx>) {
+    state.session.abort_if_errors();
+
+    let tcx = state.tcx.unwrap();
+    let limits = resource_limits_from_attributes(state);
+
+    struct Visitor<'a, 'tcx: 'a>(::ResourceLimits, TyCtxt<'a, 'tcx, 'tcx>, &'a CompileState<'a, 'tcx>);
+    impl<'a, 'tcx: 'a, 'hir> itemlikevisit::ItemLikeVisitor<'hir> for Visitor<'a, 'tcx> {
+        fn visit_item(&mut self, i: &'hir hir::Item) {
+            if let hir::Item_::ItemFn(_, _, _, _, _, body_id) = i.node {
+                if i.attrs.iter().any(|attr| attr.name().map_or(false, |n| n == "symbolic_execution_entry_point")) {
+                    let did = self.1.hir.body_owner_def_id(body_id);
+                    let mut executor = ::executor::Executor::new();
+                    executor.eval_main(self.1, did, self.0);
+                    self.2.session.abort_if_errors();
+                }
+            }
+        }
+        fn visit_trait_item(&mut self, _trait_item: &'hir hir::TraitItem) {}
+        fn visit_impl_item(&mut self, _impl_item: &'hir hir::ImplItem) {}
+    }
+    state.hir_crate.unwrap().visit_all_item_likes(&mut Visitor(limits, tcx, state));
+}
+
+fn resource_limits_from_attributes(state: &CompileState) -> ::ResourceLimits {
+    let mut limits = ::ResourceLimits::default();
     let krate = state.hir_crate.as_ref().unwrap();
     let err_msg = "miri attributes need to be in the form `miri(key = value)`";
     let extract_int = |lit: &syntax::ast::Lit| -> u128 {
@@ -140,39 +148,6 @@ fn resource_limits_from_attributes(state: &CompileState) -> seer::ResourceLimits
     limits
 }
 
-fn init_logger() {
-    let format = |record: &log::LogRecord| {
-        if record.level() == log::LogLevel::Trace {
-            // prepend spaces to indent the final string
-            let indentation = log_settings::settings().indentation;
-            format!(
-                "{lvl}:{module}:{indent:<indentation$} {text}",
-                lvl = record.level(),
-                module = record.location().module_path(),
-                indentation = indentation,
-                indent = "",
-                text = record.args(),
-            )
-        } else {
-            format!(
-                "{lvl}:{module}: {text}",
-                lvl = record.level(),
-                module = record.location().module_path(),
-                text = record.args(),
-            )
-        }
-    };
-
-    let mut builder = env_logger::LogBuilder::new();
-    builder.format(format).filter(None, log::LogLevelFilter::Info);
-
-    if std::env::var("MIRI_LOG").is_ok() {
-        builder.parse(&std::env::var("MIRI_LOG").unwrap());
-    }
-
-    builder.init().unwrap();
-}
-
 fn find_sysroot() -> String {
     // Taken from https://github.com/Manishearth/rust-clippy/pull/911.
     let home = option_env!("RUSTUP_HOME").or(option_env!("MULTIRUST_HOME"));
@@ -185,22 +160,25 @@ fn find_sysroot() -> String {
     }
 }
 
-fn main() {
-    init_logger();
-    let mut args: Vec<String> = std::env::args().collect();
-
+fn main_helper(mut args: Vec<String>, mode: Mode) {
     let sysroot_flag = String::from("--sysroot");
     if !args.contains(&sysroot_flag) {
         args.push(sysroot_flag);
         args.push(find_sysroot());
     }
-    // we run the optimization passes inside miri
-    // if we ran them twice we'd get funny failures due to borrowck ElaborateDrops only working on
-    // unoptimized MIR
-    // FIXME: add an after-mir-passes hook to rustc driver
+
+    // TODO(cleanup) is this still necessary?
     args.push("-Zmir-opt-level=0".to_owned());
     // for auxilary builds in unit tests
     args.push("-Zalways-encode-mir".to_owned());
 
-    rustc_driver::run_compiler(&args, &mut SeerCompilerCalls(RustcDefaultCalls), None, None);
+    rustc_driver::run_compiler(&args, &mut SeerCompilerCalls(RustcDefaultCalls, mode), None, None);
+}
+
+pub fn run_main(args: Vec<String>) {
+    main_helper(args, Mode::RunMain);
+}
+
+pub fn run_symbolic(args: Vec<String>) {
+    main_helper(args, Mode::RunSymbolic);
 }
