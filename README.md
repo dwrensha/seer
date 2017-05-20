@@ -1,3 +1,3 @@
-# Pangloss: Symbolic Execution for Rust
+# SEER: Symbolic Execution Engine for Rust
 
 Based on miri and z3.
