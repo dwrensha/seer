@@ -71,9 +71,10 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     let mut otherwise_constraints = Vec::new();
                     for (index, const_int) in values.iter().enumerate() {
                         let prim = PrimVal::Bytes(const_int.to_u128_unchecked());
-                        let eq_constraint = Constraint::new_eq(discr_kind, discr_prim, prim);
+                        let eq_constraint = Constraint::new_compare(
+                            mir::BinOp::Eq, discr_kind, discr_prim, prim);
                         otherwise_constraints.push(
-                            Constraint::new_neq(discr_kind, discr_prim, prim));
+                            Constraint::new_compare(mir::BinOp::Ne, discr_kind, discr_prim, prim));
                         if self.memory.constraints.is_feasible_with(&[eq_constraint]) {
                             feasible_blocks_with_constraints.push(
                                 FinishStep {
@@ -591,7 +592,8 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                                 //let mut gt_constraints = equal_constraints.clone();
 
                                 equal_constraints.push(
-                                    Constraint::new_eq(
+                                    Constraint::new_compare(
+                                        mir::BinOp::Eq,
                                         PrimValKind::U8,
                                         PrimVal::Abstract(sbytes),
                                         PrimVal::from_u128(c as u128),

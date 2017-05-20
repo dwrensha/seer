@@ -28,8 +28,7 @@ pub enum Constraint {
         rhs_operand2: PrimVal,
         lhs: PrimVal,
     },
-    Eq { kind: PrimValKind, lhs: PrimVal, rhs: PrimVal, },
-    Neq { kind: PrimValKind, lhs: PrimVal, rhs: PrimVal, },
+    Compare { op: mir::BinOp, kind: PrimValKind, lhs: PrimVal, rhs: PrimVal, },
 }
 
 impl Constraint {
@@ -45,12 +44,8 @@ impl Constraint {
         }
     }
 
-    pub fn new_eq(kind: PrimValKind, lhs: PrimVal, rhs: PrimVal) -> Self {
-        Constraint::Eq { kind, lhs, rhs }
-    }
-
-    pub fn new_neq(kind: PrimValKind, lhs: PrimVal, rhs: PrimVal) -> Self {
-        Constraint::Neq { kind, lhs, rhs }
+    pub fn new_compare(op: mir::BinOp, kind: PrimValKind, lhs: PrimVal, rhs: PrimVal) -> Self {
+        Constraint::Compare { op, kind, lhs, rhs }
     }
 }
 
@@ -207,13 +202,20 @@ fn constraint_to_ast<'a>(
                     primval_to_ast(&ctx, rhs_operand1, kind),
                     primval_to_ast(&ctx, rhs_operand2, kind)))
         }
-        Constraint::Eq { lhs, rhs, .. } => {
-            primval_to_ast(&ctx, lhs, PrimValKind::U8)._eq( // HACK
-                &primval_to_ast(&ctx, rhs, PrimValKind::U8))
-        }
-        Constraint::Neq { lhs, rhs, .. } => {
-            primval_to_ast(&ctx, lhs, PrimValKind::U8)._eq( // HACK
-                &primval_to_ast(&ctx, rhs, PrimValKind::U8)).not()
+        Constraint::Compare { op, lhs, rhs, .. } => {
+            match op {
+                mir::BinOp::Eq => {
+                    primval_to_ast(&ctx, lhs, PrimValKind::U8)._eq( // HACK
+                        &primval_to_ast(&ctx, rhs, PrimValKind::U8))
+                }
+                mir::BinOp::Ne => {
+                    primval_to_ast(&ctx, lhs, PrimValKind::U8)._eq( // HACK
+                        &primval_to_ast(&ctx, rhs, PrimValKind::U8)).not()
+                }
+                _ => {
+                    unimplemented!()
+                }
+            }
         }
     }
 }
