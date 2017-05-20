@@ -98,7 +98,7 @@ impl ConstraintContext {
         primval
     }
 
-    pub fn dump_constraints(&self) {
+    pub fn get_satisfying_values(&self, len: usize) -> Vec<u8> {
         let cfg = z3::Config::new();
         let ctx = z3::Context::new(&cfg);
         let solver = z3::Solver::new(&ctx);
@@ -113,13 +113,14 @@ impl ConstraintContext {
             solver.assert(&constraint_to_ast(&ctx, *c));
         }
 
-        let sat = solver.check();
-        println!("sat? {}", sat);
+        let mut result = Vec::new();
+        assert!(solver.check());
         let model = solver.get_model();
-        for idx in 0..consts.len() {
-            let x = model.eval(&consts[idx]).unwrap().as_u64().expect("1");
-            println!(" _{} = {}", idx, x)
+        for idx in 0..len {
+            result.push(model.eval(&consts[idx]).unwrap().as_u64().unwrap() as u8);
         }
+
+        result
     }
 
     pub fn is_feasible_with(

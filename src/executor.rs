@@ -25,6 +25,13 @@ pub struct FinishStep<'tcx> {
     pub set_lvalue: Option<(Lvalue<'tcx>, PrimVal, Ty<'tcx>)>,
 }
 
+pub struct ExecutionComplete<'tcx> {
+    input: Vec<u8>,
+    result: Result<(), EvalError<'tcx>>,
+}
+
+static HACK_ABSTRACT_ALLOC_LEN: usize = 21;
+
 impl <'a, 'tcx: 'a> Executor<'a, 'tcx> {
     pub fn new_main(
         tcx: TyCtxt<'a, 'tcx, 'tcx>,
@@ -107,7 +114,7 @@ impl <'a, 'tcx: 'a> Executor<'a, 'tcx> {
             _ => panic!("nope. the arg needs to be a &[u8]"),
         }
 
-        let len = 21;
+        let len = HACK_ABSTRACT_ALLOC_LEN as u64;
         let ptr = ecx.memory.allocate_abstract(len, 8).unwrap();
         let val = Value::ByValPair(PrimVal::Ptr(ptr), PrimVal::from_u128(len as u128));
         let lvalue = ecx.eval_lvalue(&mir::Lvalue::Local(mir::Local::new(1))).unwrap();
@@ -156,8 +163,10 @@ impl <'a, 'tcx: 'a> Executor<'a, 'tcx> {
                 }
                 Ok((false, _)) => {
                     println!("DONE");
-                    ecx.memory.constraints.dump_constraints();
-                    ecx.memory.root_abstract_alloc.map(|p| ecx.memory.deallocate(p).unwrap());
+                    ecx.memory.root_abstract_alloc.map(|p| {
+                        println!("{:?}", ecx.memory.constraints.get_satisfying_values(HACK_ABSTRACT_ALLOC_LEN));
+                        ecx.memory.deallocate(p).unwrap()
+                    });
                     let leaks = ecx.memory.leak_report();
                     if leaks != 0 {
                         self.tcx.sess.err("the evaluated program leaked memory");
@@ -165,7 +174,9 @@ impl <'a, 'tcx: 'a> Executor<'a, 'tcx> {
                 }
                 Err(e) => {
                     println!("got an error! {:?}", e);
-                    ecx.memory.constraints.dump_constraints();
+                    if let Some(_) = ecx.memory.root_abstract_alloc {
+                        println!("{:?}", ecx.memory.constraints.get_satisfying_values(HACK_ABSTRACT_ALLOC_LEN));
+                    }
 //                    report(tcx, &ecx, e);
                 }
             }
