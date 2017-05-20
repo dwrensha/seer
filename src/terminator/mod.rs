@@ -26,8 +26,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
     }
 
     // If the result is a branch on an abstract discriminant, returns a vector
-    // of the possible branches and their associated new constraints. Otherwise
-    // returns None.
+    // of the possible branches. Otherwise just takes the step and returns None.
     pub(super) fn eval_terminator(
         &mut self,
         terminator: &mir::Terminator<'tcx>,
@@ -249,15 +248,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     Abi::C => {
                         let ty = sig.output();
                         let (ret, target) = destination.unwrap();
-                        let result = self.call_c_abi(instance.def_id(), arg_operands, ret, ty)?;
-                        if let None = result {
-                            // no abstract branches
-                            self.dump_local(ret);
-                            self.goto_block(target);
-                            return Ok(None);
-                        } else {
-                            return Ok(result);
-                        }
+                        return self.call_c_abi(instance.def_id(), arg_operands, ret, ty, target);
                     },
                     Abi::Rust | Abi::RustCall => {},
                     _ => unimplemented!(),
@@ -520,6 +511,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         args: &[mir::Operand<'tcx>],
         dest: Lvalue<'tcx>,
         dest_ty: Ty<'tcx>,
+        target: mir::BasicBlock,
     ) -> EvalResult<'tcx, Option<Vec<FinishStep<'tcx>>>> {
         let name = self.tcx.item_name(def_id);
         let attrs = self.tcx.get_attrs(def_id);
@@ -540,6 +532,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 let align = self.value_to_primval(args[1], usize)?.to_u64()?;
                 let ptr = self.memory.allocate(size, align)?;
                 self.write_primval(dest, PrimVal::Ptr(ptr), dest_ty)?;
+                self.goto_block(target);
             }
 
             "__rust_deallocate" => {
@@ -548,6 +541,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 let _old_size = self.value_to_primval(args[1], usize)?.to_u64()?;
                 let _align = self.value_to_primval(args[2], usize)?.to_u64()?;
                 self.memory.deallocate(ptr)?;
+                self.goto_block(target);
             },
 
             "__rust_reallocate" => {
@@ -556,6 +550,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 let align = self.value_to_primval(args[3], usize)?.to_u64()?;
                 let new_ptr = self.memory.reallocate(ptr, size, align)?;
                 self.write_primval(dest, PrimVal::Ptr(new_ptr), dest_ty)?;
+                self.goto_block(target);
             }
 
             "memcmp" => {
@@ -563,13 +558,16 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 let right = args[1].read_ptr(&self.memory)?;
                 let n = self.value_to_primval(args[2], usize)?.to_u64()?;
 
+                let mut is_concrete = true;
+                let mut abstract_branches = Vec::new();
+                let mut equal_constraints = Vec::new();
+
                 let result = {
                     use std::cmp::Ordering::*;
 
                     let left_bytes = self.memory.read_bytes(left, n)?;
                     let right_bytes = self.memory.read_bytes(right, n)?;
 
-                    let mut equal_constraints = Vec::new();
                     let mut ordering = Equal;
                     'stepping: for idx in 0..n as usize {
                         match (left_bytes[idx], right_bytes[idx]) {
@@ -586,10 +584,11 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                                 }
                             }
                             (SByte::Abstract(a), SByte::Concrete(c)) => {
+                                is_concrete = false;
                                 let mut sbytes = [SByte::Concrete(0); 8];
                                 sbytes[0] = SByte::Abstract(a);
-                                //let mut lt_constraints = equal_constraints.clone();
-                                //let mut gt_constraints = equal_constraints.clone();
+                                let mut lt_constraints = equal_constraints.clone();
+                                let mut gt_constraints = equal_constraints.clone();
 
                                 equal_constraints.push(
                                     Constraint::new_compare(
@@ -599,7 +598,36 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                                         PrimVal::from_u128(c as u128),
                                     ));
 
-                                unimplemented!()
+                                lt_constraints.push(
+                                    Constraint::new_compare(
+                                        mir::BinOp::Lt,
+                                        PrimValKind::U8,
+                                        PrimVal::Abstract(sbytes),
+                                        PrimVal::from_u128(c as u128),
+                                    ));
+
+                                gt_constraints.push(
+                                    Constraint::new_compare(
+                                        mir::BinOp::Lt,
+                                        PrimValKind::U8,
+                                        PrimVal::Abstract(sbytes),
+                                        PrimVal::from_u128(c as u128),
+                                    ));
+
+
+                                abstract_branches.push(
+                                    FinishStep {
+                                        constraints: lt_constraints,
+                                        goto_block: target,
+                                        set_lvalue: Some((dest, PrimVal::from_i128(-1), dest_ty))
+                                    });
+
+                                abstract_branches.push(
+                                    FinishStep {
+                                        constraints: gt_constraints,
+                                        goto_block: target,
+                                        set_lvalue: Some((dest, PrimVal::from_u128(1), dest_ty))
+                                    });
                             }
                             _ => unimplemented!()
                         }
@@ -612,7 +640,17 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     }
                 };
 
-                self.write_primval(dest, PrimVal::Bytes(result as u128), dest_ty)?;
+                if is_concrete {
+                    self.write_primval(dest, PrimVal::Bytes(result as u128), dest_ty)?;
+                    self.goto_block(target);
+                } else {
+                    abstract_branches.push(FinishStep {
+                        constraints: equal_constraints,
+                        goto_block: target,
+                        set_lvalue: Some((dest, PrimVal::from_u128(0), dest_ty))
+                    });
+                    return Ok(Some(abstract_branches));
+                }
             }
 
             "memrchr" => {
@@ -650,15 +688,18 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     info!("ignored env var request for `{:?}`", ::std::str::from_utf8(name));
                 }
                 self.write_value(Value::ByVal(PrimVal::Bytes(0)), dest, dest_ty)?;
+                self.goto_block(target);
             }
 
             // unix panic code inside libstd will read the return value of this function
             "pthread_rwlock_rdlock" => {
                 self.write_primval(dest, PrimVal::Bytes(0), dest_ty)?;
+                self.goto_block(target);
             }
 
             link_name if link_name.starts_with("pthread_") => {
                 warn!("ignoring C ABI call: {}", link_name);
+                self.goto_block(target);
                 return Ok(None);
             },
 

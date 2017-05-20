@@ -203,6 +203,8 @@ fn constraint_to_ast<'a>(
                     primval_to_ast(&ctx, rhs_operand2, kind)))
         }
         Constraint::Compare { op, lhs, rhs, .. } => {
+            // TODO(cleanup) this duplicates some functionality of mir_binop_to_ast().
+            // Can we consolidate?
             match op {
                 mir::BinOp::Eq => {
                     primval_to_ast(&ctx, lhs, PrimValKind::U8)._eq( // HACK
@@ -212,6 +214,16 @@ fn constraint_to_ast<'a>(
                     primval_to_ast(&ctx, lhs, PrimValKind::U8)._eq( // HACK
                         &primval_to_ast(&ctx, rhs, PrimValKind::U8)).not()
                 }
+                mir::BinOp::Gt => {
+                    primval_to_ast(&ctx, lhs, PrimValKind::U8).bvugt( // HACK
+                        &primval_to_ast(&ctx, rhs, PrimValKind::U8))
+                }
+
+                mir::BinOp::Lt => {
+                    primval_to_ast(&ctx, lhs, PrimValKind::U8).bvult( // HACK
+                        &primval_to_ast(&ctx, rhs, PrimValKind::U8))
+                }
+
                 _ => {
                     unimplemented!()
                 }
