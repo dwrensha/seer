@@ -12,7 +12,7 @@ use eval_context::{EvalContext, IntegerExt, StackPopCleanup, is_inhabited};
 use executor::FinishStep;
 use lvalue::Lvalue;
 use memory::{Pointer, SByte};
-use value::PrimVal;
+use value::{PrimVal, PrimValKind};
 use value::Value;
 use rustc_data_structures::indexed_vec::Idx;
 
@@ -248,10 +248,15 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     Abi::C => {
                         let ty = sig.output();
                         let (ret, target) = destination.unwrap();
-                        self.call_c_abi(instance.def_id(), arg_operands, ret, ty)?;
-                        self.dump_local(ret);
-                        self.goto_block(target);
-                        return Ok(None);
+                        let result = self.call_c_abi(instance.def_id(), arg_operands, ret, ty)?;
+                        if let None = result {
+                            // no abstract branches
+                            self.dump_local(ret);
+                            self.goto_block(target);
+                            return Ok(None);
+                        } else {
+                            return Ok(result);
+                        }
                     },
                     Abi::Rust | Abi::RustCall => {},
                     _ => unimplemented!(),
@@ -514,7 +519,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         args: &[mir::Operand<'tcx>],
         dest: Lvalue<'tcx>,
         dest_ty: Ty<'tcx>,
-    ) -> EvalResult<'tcx, Option<Vec<(mir::BasicBlock, Vec<Constraint>)>>> {
+    ) -> EvalResult<'tcx, Option<Vec<FinishStep<'tcx>>>> {
         let name = self.tcx.item_name(def_id);
         let attrs = self.tcx.get_attrs(def_id);
         let link_name = attr::first_attr_value_str_by_name(&attrs, "link_name")
@@ -563,6 +568,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     let left_bytes = self.memory.read_bytes(left, n)?;
                     let right_bytes = self.memory.read_bytes(right, n)?;
 
+                    let mut equal_constraints = Vec::new();
                     let mut ordering = Equal;
                     'stepping: for idx in 0..n as usize {
                         match (left_bytes[idx], right_bytes[idx]) {
@@ -577,6 +583,21 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                                     }
                                     break 'stepping;
                                 }
+                            }
+                            (SByte::Abstract(a), SByte::Concrete(c)) => {
+                                let mut sbytes = [SByte::Concrete(0); 8];
+                                sbytes[0] = SByte::Abstract(a);
+                                //let mut lt_constraints = equal_constraints.clone();
+                                //let mut gt_constraints = equal_constraints.clone();
+
+                                equal_constraints.push(
+                                    Constraint::new_eq(
+                                        PrimValKind::U8,
+                                        PrimVal::Abstract(sbytes),
+                                        PrimVal::from_u128(c as u128),
+                                    ));
+
+                                unimplemented!()
                             }
                             _ => unimplemented!()
                         }
