@@ -3,10 +3,11 @@ use std::collections::VecDeque;
 use rustc::hir::def_id::DefId;
 use rustc::hir::map::definitions::DefPathData;
 use rustc::mir;
-use rustc::ty::{self, TyCtxt};
+use rustc::ty::{self, TyCtxt, Ty};
 use rustc_data_structures::indexed_vec::Idx;
 use syntax::codemap::{DUMMY_SP};
 
+use constraints::Constraint;
 use error::EvalError;
 use lvalue::{Lvalue};
 use memory::{Pointer};
@@ -15,6 +16,12 @@ use value::{PrimVal, Value};
 
 pub struct Executor<'a, 'tcx: 'a> {
     queue: VecDeque<EvalContext<'a, 'tcx>>,
+}
+
+pub struct FinishStep<'tcx> {
+    pub constraints: Vec<Constraint>,
+    pub goto_block: mir::BasicBlock,
+    pub set_lvalue: Option<(Lvalue<'tcx>, PrimVal, Ty<'tcx>)>,
 }
 
 impl <'a, 'tcx: 'a> Executor<'a, 'tcx> {
@@ -97,10 +104,16 @@ impl <'a, 'tcx: 'a> Executor<'a, 'tcx> {
                         unimplemented!()
                     } else {
                         let iter = ::std::iter::repeat(ecx).zip(branches.into_iter());
-                        for (mut cx, (block, constraints)) in iter {
+                        for (mut cx, finish_step) in iter {
+                            let FinishStep {constraints, goto_block, set_lvalue} = finish_step;
                             for constraint in constraints {
                                 cx.memory.constraints.push_constraint(constraint);
-                                cx.goto_block(block);
+                                if let Some((lvalue, prim, ty)) = set_lvalue {
+                                    if let Err(_) = cx.write_primval(lvalue, prim, ty) {
+                                        unimplemented!()
+                                    }
+                                }
+                                cx.goto_block(goto_block);
                             }
                             self.push_eval_context(cx);
                         }

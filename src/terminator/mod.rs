@@ -9,6 +9,7 @@ use syntax::abi::Abi;
 use constraints::Constraint;
 use error::{EvalError, EvalResult};
 use eval_context::{EvalContext, IntegerExt, StackPopCleanup, is_inhabited};
+use executor::FinishStep;
 use lvalue::Lvalue;
 use memory::{Pointer, SByte};
 use value::PrimVal;
@@ -30,7 +31,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
     pub(super) fn eval_terminator(
         &mut self,
         terminator: &mir::Terminator<'tcx>,
-    ) -> EvalResult<'tcx, Option<Vec<(mir::BasicBlock, Vec<Constraint>)>>> {
+    ) -> EvalResult<'tcx, Option<Vec<FinishStep<'tcx>>>> {
         use rustc::mir::TerminatorKind::*;
         match terminator.kind {
             Return => {
@@ -75,13 +76,21 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                             Constraint::new_neq(discr_kind, discr_prim, prim));
                         if self.memory.constraints.is_feasible_with(&[eq_constraint]) {
                             feasible_blocks_with_constraints.push(
-                                (targets[index], vec![eq_constraint]));
+                                FinishStep {
+                                    constraints: vec![eq_constraint],
+                                    goto_block: targets[index],
+                                    set_lvalue: None
+                                });
                         }
                     }
 
                     if self.memory.constraints.is_feasible_with(&otherwise_constraints) {
                         feasible_blocks_with_constraints.push(
-                            (targets[targets.len() - 1], otherwise_constraints));
+                            FinishStep {
+                                constraints: otherwise_constraints,
+                                goto_block: targets[targets.len() - 1],
+                                set_lvalue: None
+                            });
                     }
 
                     Ok(Some(feasible_blocks_with_constraints))
@@ -127,8 +136,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     }
                 };
                 let sig = self.erase_lifetimes(&sig);
-                self.eval_fn_call(fn_def, destination, args, terminator.source_info.span, sig)?;
-                Ok(None)
+                self.eval_fn_call(fn_def, destination, args, terminator.source_info.span, sig)
             }
 
             Drop { ref location, target, .. } => {
@@ -179,7 +187,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         arg_operands: &[mir::Operand<'tcx>],
         span: Span,
         sig: ty::FnSig<'tcx>,
-    ) -> EvalResult<'tcx> {
+    ) -> EvalResult<'tcx, Option<Vec<FinishStep<'tcx>>>> {
         trace!("eval_fn_call: {:#?}", instance);
         match instance.def {
             ty::InstanceDef::Intrinsic(..) => {
@@ -194,7 +202,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 let layout = self.type_layout(ty)?;
                 self.call_intrinsic(instance, arg_operands, ret, ty, layout, target)?;
                 self.dump_local(ret);
-                Ok(())
+                Ok(None)
             },
             ty::InstanceDef::ClosureOnceShim{..} => {
                 let mut args = Vec::new();
@@ -208,7 +216,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     destination,
                     span,
                 )? {
-                    return Ok(());
+                    return Ok(None);
                 }
                 let mut arg_locals = self.frame().mir.args_iter();
                 match sig.abi {
@@ -233,7 +241,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     },
                     _ => bug!("bad ABI for ClosureOnceShim: {:?}", sig.abi),
                 }
-                Ok(())
+                Ok(None)
             }
             ty::InstanceDef::Item(_) => {
                 match sig.abi {
@@ -243,7 +251,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                         self.call_c_abi(instance.def_id(), arg_operands, ret, ty)?;
                         self.dump_local(ret);
                         self.goto_block(target);
-                        return Ok(());
+                        return Ok(None);
                     },
                     Abi::Rust | Abi::RustCall => {},
                     _ => unimplemented!(),
@@ -260,7 +268,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     destination,
                     span,
                 )? {
-                    return Ok(());
+                    return Ok(None);
                 }
 
                 let mut arg_locals = self.frame().mir.args_iter();
@@ -319,7 +327,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     }
                     _ => unimplemented!(),
                 }
-                Ok(())
+                Ok(None)
             },
             ty::InstanceDef::DropGlue(..) => {
                 assert_eq!(arg_operands.len(), 1);
@@ -335,7 +343,8 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     ty::TyAdt(ref def, _) if def.is_box() => ty.boxed_ty(),
                     _ => bug!("can only deref pointer types"),
                 };
-                self.drop(val, instance, pointee_type, span)
+                self.drop(val, instance, pointee_type, span)?;
+                Ok(None)
             },
             ty::InstanceDef::FnPtrShim(..) => {
                 trace!("ABI: {}", sig.abi);
@@ -350,7 +359,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     destination,
                     span,
                 )? {
-                    return Ok(());
+                    return Ok(None);
                 }
                 let arg_locals = self.frame().mir.args_iter();
                 match sig.abi {
@@ -364,7 +373,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     let dest = self.eval_lvalue(&mir::Lvalue::Local(arg_local))?;
                     self.write_value(arg_val, dest, arg_ty)?;
                 }
-                Ok(())
+                Ok(None)
             },
             ty::InstanceDef::Virtual(_, idx) => {
                 let ptr_size = self.memory.pointer_size();
@@ -505,7 +514,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         args: &[mir::Operand<'tcx>],
         dest: Lvalue<'tcx>,
         dest_ty: Ty<'tcx>,
-    ) -> EvalResult<'tcx> {
+    ) -> EvalResult<'tcx, Option<Vec<(mir::BasicBlock, Vec<Constraint>)>>> {
         let name = self.tcx.item_name(def_id);
         let attrs = self.tcx.get_attrs(def_id);
         let link_name = attr::first_attr_value_str_by_name(&attrs, "link_name")
@@ -627,7 +636,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
 
             link_name if link_name.starts_with("pthread_") => {
                 warn!("ignoring C ABI call: {}", link_name);
-                return Ok(());
+                return Ok(None);
             },
 
             _ => {
@@ -638,6 +647,6 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         // Since we pushed no stack frame, the main loop will act
         // as if the call just completed and it's returning to the
         // current frame.
-        Ok(())
+        Ok(None)
     }
 }

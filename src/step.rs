@@ -9,9 +9,9 @@ use rustc::mir;
 use rustc::ty::layout::Layout;
 use rustc::ty::{subst, self};
 
-use constraints::Constraint;
 use error::{EvalResult, EvalError};
 use eval_context::{EvalContext, StackPopCleanup};
+use executor::FinishStep;
 use lvalue::{Global, GlobalId, Lvalue};
 use value::{Value, PrimVal};
 use syntax::codemap::Span;
@@ -28,7 +28,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
 
     /// Returns true as long as there are more things to do.
     pub fn step(&mut self)
-                -> EvalResult<'tcx, (bool, Option<Vec<(mir::BasicBlock, Vec<Constraint>)>>)>
+                -> EvalResult<'tcx, (bool, Option<Vec<FinishStep<'tcx>>>)>
     {
         // see docs on the `Memory::packed` field for why we do this
         self.memory.clear_packed();
@@ -129,7 +129,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
 
     fn terminator(&mut self,
                   terminator: &mir::Terminator<'tcx>)
-                  -> EvalResult<'tcx, Option<Vec<(mir::BasicBlock, Vec<Constraint>)>>>
+                  -> EvalResult<'tcx, Option<Vec<FinishStep<'tcx>>>>
     {
         trace!("{:?}", terminator.kind);
         let result = self.eval_terminator(terminator)?;
