@@ -79,8 +79,8 @@ fn after_analysis_run_main<'a, 'tcx>(state: &mut CompileState<'a, 'tcx>) {
     if let Some((entry_node_id, _)) = *state.session.entry_fn.borrow() {
         let entry_def_id = tcx.hir.local_def_id(entry_node_id);
 
-        let mut executor = ::executor::Executor::new();
-        executor.eval_main(tcx, entry_def_id, limits);
+        let mut executor = ::executor::Executor::new_main(tcx, entry_def_id, limits);
+        executor.run();
 
         state.session.abort_if_errors();
     } else {
@@ -100,8 +100,8 @@ fn after_analysis_run_symbolic<'a, 'tcx>(state: &mut CompileState<'a, 'tcx>) {
             if let hir::Item_::ItemFn(_, _, _, _, _, body_id) = i.node {
                 if i.attrs.iter().any(|attr| attr.name().map_or(false, |n| n == "symbolic_execution_entry_point")) {
                     let did = self.1.hir.body_owner_def_id(body_id);
-                    let mut executor = ::executor::Executor::new();
-                    executor.eval_main(self.1, did, self.0);
+                    let mut executor = ::executor::Executor::new_symbolic(self.1, did, self.0);
+                    executor.run();
                     self.2.session.abort_if_errors();
                 }
             }

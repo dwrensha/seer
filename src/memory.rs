@@ -167,6 +167,8 @@ pub struct Memory<'a, 'tcx> {
     literal_alloc_cache: HashMap<Vec<u8>, AllocId>,
 
     pub constraints: ConstraintContext,
+
+    pub root_abstract_alloc: Option<Pointer>,
 }
 
 const ZST_ALLOC_ID: AllocId = AllocId(0);
@@ -186,6 +188,7 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
             static_alloc: HashSet::new(),
             literal_alloc_cache: HashMap::new(),
             constraints: ConstraintContext::new(),
+            root_abstract_alloc: None,
         }
     }
 
