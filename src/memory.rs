@@ -766,8 +766,11 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
                 self.write_uint(dest, bytes & mask, size)
             }
 
-            PrimVal::Abstract(_) => {
-                unimplemented!()
+            PrimVal::Abstract(sbytes) => {
+                let align = self.int_align(size)?;
+                let dest_slice = self.get_bytes_mut(dest, size, align)?;
+                dest_slice.copy_from_slice(&sbytes[.. size as usize]);
+                Ok(())
             }
 
             PrimVal::Undef => self.mark_definedness(dest, size, false),

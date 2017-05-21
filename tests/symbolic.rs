@@ -59,3 +59,24 @@ fn symbolic_comparisons() {
     let args = vec!["run_symbolic".to_string(), "tests/symbolic/comparisons.rs".to_string()];
     ::seer::run_symbolic(args, consumer);
 }
+
+
+#[test]
+fn symbolic_write_mem() {
+    let consumer = |complete| {
+        match complete {
+            ::seer::ExecutionComplete { result: Err(::seer::StaticEvalError::Panic),
+                                        input } => {
+                assert_eq!(
+                    &input[..4],
+                    &[7, 3, 21, 21]);
+
+                false
+            }
+            _ => true,
+        }
+    };
+
+    let args = vec!["run_symbolic".to_string(), "tests/symbolic/write_mem.rs".to_string()];
+    ::seer::run_symbolic(args, consumer);
+}
