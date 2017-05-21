@@ -28,6 +28,15 @@ pub enum Constraint {
         rhs_operand2: PrimVal,
         lhs: PrimVal,
     },
+
+    // lhs = op(rhs)
+    Unop {
+        operator: mir::UnOp,
+        kind: PrimValKind,
+        operand: PrimVal,
+        lhs: PrimVal,
+    },
+
     Compare { op: mir::BinOp, kind: PrimValKind, lhs: PrimVal, rhs: PrimVal, },
 }
 
@@ -41,6 +50,17 @@ impl Constraint {
     ) -> Self {
         Constraint::Binop {
             operator, kind, rhs_operand1, rhs_operand2, lhs,
+        }
+    }
+
+    pub fn new_unop(
+        operator: mir::UnOp,
+        kind: PrimValKind,
+        operand: PrimVal,
+        lhs: PrimVal,
+    ) -> Self {
+        Constraint::Unop {
+            operator, kind, operand, lhs,
         }
     }
 
@@ -68,7 +88,7 @@ impl ConstraintContext {
     }
 
     /// Creates a fresh abstract PrimVal `X` and adds a constraint
-    /// `left binop right == X`. Returns `X`.
+    /// `X == left binop right`. Returns `X`.
     pub fn add_binop_constraint(
         &mut self,
         bin_op: mir::BinOp,
@@ -92,6 +112,36 @@ impl ConstraintContext {
         let primval = PrimVal::Abstract(buffer);
 
         let constraint = Constraint::new_binop(bin_op, kind, left, right, primval);
+
+        self.push_constraint(constraint);
+
+        primval
+    }
+
+    /// Creates a fresh abstract PrimVal `X` and adds a constraint
+    /// `X == unop right`. Returns `X`.
+    pub fn add_unop_constraint(
+        &mut self,
+        un_op: mir::UnOp,
+        val: PrimVal,
+        kind: PrimValKind) -> PrimVal {
+
+        use value::PrimValKind::*;
+
+        let num_bytes = match kind {
+            U8 | I8 => 1,
+            Bool => 1, // HACK?
+            _ => unimplemented!(),
+        };
+
+
+        let mut buffer = [SByte::Concrete(0); 8];
+        for idx in 0..num_bytes {
+            buffer[idx] = self.allocate_abstract_byte();
+        }
+
+        let primval = PrimVal::Abstract(buffer);
+        let constraint = Constraint::new_unop(un_op, kind, val, primval);
 
         self.push_constraint(constraint);
 
@@ -203,6 +253,14 @@ fn constraint_to_ast<'a>(
                     primval_to_ast(&ctx, rhs_operand1, kind),
                     primval_to_ast(&ctx, rhs_operand2, kind)))
         }
+        Constraint::Unop { operator, kind, lhs, operand, .. } => {
+            primval_to_ast(&ctx, lhs, kind)._eq(
+                &mir_unop_to_ast(
+                    &ctx,
+                    operator,
+                    primval_to_ast(&ctx, operand, kind)))
+        }
+
         Constraint::Compare { op, lhs, rhs, .. } => {
             // TODO(cleanup) this duplicates some functionality of mir_binop_to_ast().
             // Can we consolidate?
@@ -246,17 +304,20 @@ fn primval_to_ast<'a>(ctx: &'a z3::Context,
             unimplemented!()
         }
         PrimVal::Abstract(sbytes) => {
-            if let PrimValKind::U8 = kind {
-                match sbytes[0] {
-                    SByte::Abstract(b) => {
-                        ctx.numbered_bitvector_const(b.0, 8)
-                    }
-                    SByte::Concrete(_b) => {
-                        unimplemented!()
+            match kind {
+                PrimValKind::U8 | PrimValKind::Bool => {
+                    match sbytes[0] {
+                        SByte::Abstract(b) => {
+                            ctx.numbered_bitvector_const(b.0, 8)
+                        }
+                        SByte::Concrete(_b) => {
+                            unimplemented!()
+                        }
                     }
                 }
-            } else {
-                unimplemented!()
+                _ => {
+                    unimplemented!()
+                }
             }
         }
         PrimVal::Bytes(v) => {
@@ -279,12 +340,34 @@ fn mir_binop_to_ast<'a>(
     match operator {
         mir::BinOp::Eq => {
             left._eq(&right)
-                .ite(&z3::Ast::bv_from_u64(&ctx, 1, 8), /// HACK
+                .ite(&z3::Ast::bv_from_u64(&ctx, 1, 8), // HACK
                      &z3::Ast::bv_from_u64(&ctx, 0, 8))
         }
+        mir::BinOp::Ne => {
+            left._eq(&right)
+                .ite(&z3::Ast::bv_from_u64(&ctx, 0, 8), // HACK
+                     &z3::Ast::bv_from_u64(&ctx, 1, 8))
+        }
+
         mir::BinOp::Lt => {
             left.bvult(&right)
-                .ite(&z3::Ast::bv_from_u64(&ctx, 1, 8), /// HACK
+                .ite(&z3::Ast::bv_from_u64(&ctx, 1, 8), // HACK
+                     &z3::Ast::bv_from_u64(&ctx, 0, 8))
+        }
+        mir::BinOp::Le => {
+            left.bvule(&right)
+                .ite(&z3::Ast::bv_from_u64(&ctx, 1, 8), // HACK
+                     &z3::Ast::bv_from_u64(&ctx, 0, 8))
+        }
+
+        mir::BinOp::Gt => {
+            left.bvugt(&right)
+                .ite(&z3::Ast::bv_from_u64(&ctx, 1, 8), // HACK
+                     &z3::Ast::bv_from_u64(&ctx, 0, 8))
+        }
+        mir::BinOp::Ge => {
+            left.bvuge(&right)
+                .ite(&z3::Ast::bv_from_u64(&ctx, 1, 8), // HACK
                      &z3::Ast::bv_from_u64(&ctx, 0, 8))
         }
 
@@ -292,6 +375,22 @@ fn mir_binop_to_ast<'a>(
         mir::BinOp::BitXor => left.bvxor(&right),
         mir::BinOp::Mul => left.bvmul(&right),
         _ => {
+            unimplemented!()
+        }
+    }
+}
+
+fn mir_unop_to_ast<'a>(
+    ctx: &'a z3::Context,
+    operator: mir::UnOp,
+    val: z3::Ast<'a>,)
+    -> z3::Ast<'a>
+{
+    match operator {
+        mir::UnOp::Not => {
+            val.bvxor(&z3::Ast::bv_from_u64(&ctx, 1, 8)) // HACK
+        }
+        mir::UnOp::Neg => {
             unimplemented!()
         }
     }

@@ -18,7 +18,6 @@ use syntax::symbol::Symbol;
 use error::{EvalError, EvalResult};
 use lvalue::{Global, GlobalId, Lvalue, LvalueExtra};
 use memory::{Memory, Pointer};
-use operator;
 use value::{PrimVal, PrimValKind, Value};
 
 
@@ -640,7 +639,8 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             UnaryOp(un_op, ref operand) => {
                 let val = self.eval_operand_to_primval(operand)?;
                 let kind = self.ty_to_primval_kind(dest_ty)?;
-                self.write_primval(dest, operator::unary_op(un_op, val, kind)?, dest_ty)?;
+                let result = self.unary_op(un_op, val, kind)?;
+                self.write_primval(dest, result, dest_ty)?;
             }
 
             // Skip everything for zsts

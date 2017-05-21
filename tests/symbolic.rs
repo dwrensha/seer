@@ -38,3 +38,24 @@ fn symbolic_manticore() {
     let args = vec!["run_symbolic".to_string(), "tests/symbolic/manticore.rs".to_string()];
     ::seer::run_symbolic(args, consumer);
 }
+
+
+#[test]
+fn symbolic_comparisons() {
+    let consumer = |complete| {
+        match complete {
+            ::seer::ExecutionComplete { result: Err(::seer::StaticEvalError::Panic),
+                                        input } => {
+                assert_eq!(
+                    &input[..5],
+                    &[17, 18, 38, 37, 101]);
+
+                false
+            }
+            _ => true,
+        }
+    };
+
+    let args = vec!["run_symbolic".to_string(), "tests/symbolic/comparisons.rs".to_string()];
+    ::seer::run_symbolic(args, consumer);
+}
