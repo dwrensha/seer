@@ -10,7 +10,7 @@ use rustc_data_structures::indexed_vec::Idx;
 use syntax::codemap::{DUMMY_SP};
 
 use constraints::Constraint;
-use error::EvalError;
+use error::{StaticEvalError, EvalError};
 use lvalue::{Lvalue};
 use memory::{Pointer};
 use eval_context::{EvalContext, Frame, ResourceLimits, StackPopCleanup};
@@ -31,7 +31,7 @@ pub struct FinishStep<'tcx> {
 #[derive(Debug)]
 pub struct ExecutionComplete {
     pub input: Vec<u8>,
-    pub result: Result<(), ()>,
+    pub result: Result<(), StaticEvalError>,
 }
 
 static HACK_ABSTRACT_ALLOC_LEN: usize = 21;
@@ -169,7 +169,6 @@ impl <'a, 'tcx: 'a> Executor<'a, 'tcx> {
                     }
                 }
                 Ok((false, _)) => {
-                    println!("DONE");
                     match self.consumer {
                         Some(ref f) => {
                             (&mut *f.borrow_mut())(ExecutionComplete {
@@ -188,12 +187,11 @@ impl <'a, 'tcx: 'a> Executor<'a, 'tcx> {
                     }
                 }
                 Err(e) => {
-                    println!("got an error! {:?}", e);
                     match self.consumer {
                         Some(ref f) => {
                             (&mut *f.borrow_mut())(ExecutionComplete {
                                 input: ecx.memory.constraints.get_satisfying_values(HACK_ABSTRACT_ALLOC_LEN),
-                                result: Err(())
+                                result: Err(e.into())
                             });
                         }
                         None => ()

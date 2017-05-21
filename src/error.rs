@@ -163,3 +163,127 @@ impl<'tcx> fmt::Display for EvalError<'tcx> {
         }
     }
 }
+
+#[derive(Clone, Debug)]
+pub enum StaticEvalError {
+    FunctionPointerTyMismatch,
+    NoMirFor(String),
+    UnterminatedCString(Pointer),
+    DanglingPointerDeref,
+    InvalidMemoryAccess,
+    InvalidFunctionPointer,
+    InvalidBool,
+    InvalidDiscriminant,
+    PointerOutOfBounds {
+        ptr: Pointer,
+        size: u64,
+        allocation_size: u64,
+    },
+    ReadPointerAsBytes,
+    InvalidPointerMath,
+    ReadUndefBytes,
+    InvalidBoolOp(mir::BinOp),
+    Unimplemented(String),
+    DerefFunctionPointer,
+    ExecuteMemory,
+    ArrayIndexOutOfBounds(Span, u64, u64),
+    Math(Span, ConstMathErr),
+    InvalidChar(u128),
+    OutOfMemory {
+        allocation_size: u64,
+        memory_size: u64,
+        memory_usage: u64,
+    },
+    ExecutionTimeLimitReached,
+    StackFrameLimitReached,
+    AlignmentCheckFailed {
+        required: u64,
+        has: u64,
+    },
+    CalledClosureAsFunction,
+    VtableForArgumentlessMethod,
+    ModifiedConstantMemory,
+    AssumptionNotHeld,
+    InlineAsm,
+    TypeNotPrimitive,
+    ReallocatedStaticMemory,
+    DeallocatedStaticMemory,
+    Layout,
+    Unreachable,
+    Panic,
+}
+
+impl <'tcx> From<EvalError<'tcx>> for StaticEvalError {
+    fn from(v: EvalError<'tcx>) -> Self {
+        match v {
+            EvalError::FunctionPointerTyMismatch(..) =>
+                StaticEvalError::FunctionPointerTyMismatch,
+            EvalError::InvalidMemoryAccess =>
+                StaticEvalError::InvalidMemoryAccess,
+            EvalError::DanglingPointerDeref =>
+                StaticEvalError::DanglingPointerDeref,
+            EvalError::InvalidFunctionPointer =>
+                StaticEvalError::InvalidFunctionPointer,
+            EvalError::InvalidBool =>
+                StaticEvalError::InvalidBool,
+            EvalError::InvalidDiscriminant =>
+                StaticEvalError::InvalidDiscriminant,
+            EvalError::PointerOutOfBounds { ptr, size, allocation_size } =>
+                StaticEvalError::PointerOutOfBounds { ptr, size, allocation_size },
+            EvalError::ReadPointerAsBytes =>
+                StaticEvalError::ReadPointerAsBytes,
+            EvalError::InvalidPointerMath =>
+                StaticEvalError::InvalidPointerMath,
+            EvalError::ReadUndefBytes =>
+                StaticEvalError::ReadUndefBytes,
+            EvalError::InvalidBoolOp(op) =>
+                StaticEvalError::InvalidBoolOp(op),
+            EvalError::Unimplemented(ref msg) =>
+                StaticEvalError::Unimplemented(msg.clone()),
+            EvalError::DerefFunctionPointer =>
+                StaticEvalError::DerefFunctionPointer,
+            EvalError::ExecuteMemory =>
+                StaticEvalError::ExecuteMemory,
+            EvalError::ArrayIndexOutOfBounds(a, b, c) =>
+                StaticEvalError::ArrayIndexOutOfBounds(a, b, c),
+            EvalError::Math(span, e) =>
+                StaticEvalError::Math(span, e),
+            EvalError::NoMirFor(ref s) =>
+                StaticEvalError::NoMirFor(s.clone()),
+            EvalError::InvalidChar(c) =>
+                StaticEvalError::InvalidChar(c),
+            EvalError::OutOfMemory { allocation_size, memory_size, memory_usage, } =>
+                StaticEvalError::OutOfMemory { allocation_size, memory_size, memory_usage },
+            EvalError::ExecutionTimeLimitReached =>
+                StaticEvalError::ExecutionTimeLimitReached,
+            EvalError::StackFrameLimitReached =>
+                StaticEvalError::StackFrameLimitReached,
+            EvalError::AlignmentCheckFailed { required, has, } =>
+                StaticEvalError::AlignmentCheckFailed { required, has, },
+            EvalError::CalledClosureAsFunction =>
+                StaticEvalError::CalledClosureAsFunction,
+            EvalError::VtableForArgumentlessMethod =>
+                StaticEvalError::VtableForArgumentlessMethod,
+            EvalError::ModifiedConstantMemory =>
+                StaticEvalError::ModifiedConstantMemory,
+            EvalError::AssumptionNotHeld =>
+                StaticEvalError::AssumptionNotHeld,
+            EvalError::InlineAsm =>
+                StaticEvalError::InlineAsm,
+            EvalError::TypeNotPrimitive(_) =>
+                StaticEvalError::TypeNotPrimitive,
+            EvalError::ReallocatedStaticMemory =>
+                StaticEvalError::ReallocatedStaticMemory,
+            EvalError::DeallocatedStaticMemory =>
+                StaticEvalError::DeallocatedStaticMemory,
+            EvalError::Layout(_) =>
+                StaticEvalError::Layout,
+            EvalError::UnterminatedCString(ptr) =>
+                StaticEvalError::UnterminatedCString(ptr),
+            EvalError::Unreachable =>
+                StaticEvalError::Unreachable,
+            EvalError::Panic =>
+                StaticEvalError::Panic,
+        }
+    }
+}
