@@ -541,6 +541,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 let ptr = self.memory.allocate(size, align)?;
                 self.memory.write_repeat(ptr, 0, size)?;
                 self.write_primval(dest, PrimVal::Ptr(ptr), dest_ty)?;
+                self.goto_block(target);
             }
 
             "__rust_deallocate" => {
