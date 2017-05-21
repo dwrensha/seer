@@ -768,9 +768,16 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
 
             PrimVal::Abstract(sbytes) => {
                 let align = self.int_align(size)?;
-                let dest_slice = self.get_bytes_mut(dest, size, align)?;
-                dest_slice.copy_from_slice(&sbytes[.. size as usize]);
-                Ok(())
+                match self.endianess() {
+                    layout::Endian::Little => {
+                        let dest_slice = self.get_bytes_mut(dest, size, align)?;
+                        dest_slice.copy_from_slice(&sbytes[.. size as usize]);
+                        Ok(())
+                    }
+                    layout::Endian::Big => {
+                        unimplemented!()
+                    }
+                }
             }
 
             PrimVal::Undef => self.mark_definedness(dest, size, false),
