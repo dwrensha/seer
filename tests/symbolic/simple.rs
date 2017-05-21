@@ -3,11 +3,7 @@
 
 #[symbolic_execution_entry_point]
 fn simple(data: &[u8]) {
-    if data.len() < 1 {
-        panic!()
-    }
-
-    if data[0] == 43 {
+    if !data.is_empty() && data[0] == 43 {
         panic!()
     }
 }
