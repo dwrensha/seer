@@ -38,5 +38,8 @@ fn init_logger() {
 
 fn main() {
     init_logger();
-    ::seer::run_symbolic(::std::env::args().collect());
+    let consumer = |complete| {
+        println!("complete! {:?}", complete);
+    };
+    ::seer::run_symbolic(::std::env::args().collect(), consumer);
 }

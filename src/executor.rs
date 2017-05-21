@@ -1,4 +1,6 @@
 use std::collections::VecDeque;
+use std::rc::Rc;
+use std::cell::RefCell;
 
 use rustc::hir::def_id::DefId;
 use rustc::hir::map::definitions::DefPathData;
@@ -17,6 +19,7 @@ use value::{PrimVal, Value};
 pub struct Executor<'a, 'tcx: 'a> {
     tcx: TyCtxt<'a, 'tcx, 'tcx>,
     queue: VecDeque<EvalContext<'a, 'tcx>>,
+    consumer: Option<Rc<RefCell<FnMut(ExecutionComplete)>>>,
 }
 
 pub struct FinishStep<'tcx> {
@@ -25,9 +28,10 @@ pub struct FinishStep<'tcx> {
     pub set_lvalue: Option<(Lvalue<'tcx>, PrimVal, Ty<'tcx>)>,
 }
 
-pub struct ExecutionComplete<'tcx> {
-    input: Vec<u8>,
-    result: Result<(), EvalError<'tcx>>,
+#[derive(Debug)]
+pub struct ExecutionComplete {
+    pub input: Vec<u8>,
+    pub result: Result<(), ()>,
 }
 
 static HACK_ABSTRACT_ALLOC_LEN: usize = 21;
@@ -43,6 +47,7 @@ impl <'a, 'tcx: 'a> Executor<'a, 'tcx> {
         let mut result = Executor {
             tcx: tcx,
             queue: VecDeque::new(),
+            consumer: None,
         };
 
         let mut ecx = EvalContext::new(tcx, limits);
@@ -71,11 +76,13 @@ impl <'a, 'tcx: 'a> Executor<'a, 'tcx> {
     pub fn new_symbolic(
         tcx: TyCtxt<'a, 'tcx, 'tcx>,
         def_id: DefId,
-        limits: ResourceLimits,) -> Self
+        limits: ResourceLimits,
+        consumer: Rc<RefCell<FnMut(ExecutionComplete)>>) -> Self
     {
         let mut result = Executor {
             tcx: tcx,
             queue: VecDeque::new(),
+            consumer: Some(consumer),
         };
 
         let mut ecx = EvalContext::new(tcx, limits);
@@ -163,8 +170,16 @@ impl <'a, 'tcx: 'a> Executor<'a, 'tcx> {
                 }
                 Ok((false, _)) => {
                     println!("DONE");
+                    match self.consumer {
+                        Some(ref f) => {
+                            (&mut *f.borrow_mut())(ExecutionComplete {
+                                input: ecx.memory.constraints.get_satisfying_values(HACK_ABSTRACT_ALLOC_LEN),
+                                result: Ok(())
+                            });
+                        }
+                        None => ()
+                    }
                     ecx.memory.root_abstract_alloc.map(|p| {
-                        println!("{:?}", ecx.memory.constraints.get_satisfying_values(HACK_ABSTRACT_ALLOC_LEN));
                         ecx.memory.deallocate(p).unwrap()
                     });
                     let leaks = ecx.memory.leak_report();
@@ -174,8 +189,14 @@ impl <'a, 'tcx: 'a> Executor<'a, 'tcx> {
                 }
                 Err(e) => {
                     println!("got an error! {:?}", e);
-                    if let Some(_) = ecx.memory.root_abstract_alloc {
-                        println!("{:?}", ecx.memory.constraints.get_satisfying_values(HACK_ABSTRACT_ALLOC_LEN));
+                    match self.consumer {
+                        Some(ref f) => {
+                            (&mut *f.borrow_mut())(ExecutionComplete {
+                                input: ecx.memory.constraints.get_satisfying_values(HACK_ABSTRACT_ALLOC_LEN),
+                                result: Err(())
+                            });
+                        }
+                        None => ()
                     }
 //                    report(tcx, &ecx, e);
                 }

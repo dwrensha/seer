@@ -47,6 +47,10 @@ pub use eval_context::{
     StackPopCleanup,
 };
 
+pub use executor::{
+    ExecutionComplete,
+};
+
 pub use driver::{
     run_main,
     run_symbolic,
