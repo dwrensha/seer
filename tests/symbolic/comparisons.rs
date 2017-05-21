@@ -2,7 +2,7 @@
 #![no_main]
 
 #[symbolic_execution_entry_point]
-fn simple(data: &[u8]) {
+fn comparisons(data: &[u8]) {
 
     // should panic on [ 17, 18, 38, 37, 101, .. ];
 
