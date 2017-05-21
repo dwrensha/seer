@@ -3,7 +3,15 @@
 
 #[symbolic_execution_entry_point]
 fn sort(data: &[u8]) {
-    let mut data2 = data.to_owned();
+    let mut data2 = data[..8].to_owned();
 
     data2.sort();
+
+    let mut floor = 0;
+    for d in data2 {
+        if d < floor {
+            panic!()
+        }
+        floor = d;
+    }
 }

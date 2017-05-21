@@ -38,9 +38,14 @@ fn init_logger() {
 
 fn main() {
     init_logger();
-    let consumer = |complete| {
+    let consumer = |complete: ::seer::ExecutionComplete | {
         println!("complete! {:?}", complete);
-        true
+        if let Err(_) = complete.result {
+            println!("hit an error. halting");
+            false
+        } else {
+            true
+        }
     };
     ::seer::run_symbolic(::std::env::args().collect(), consumer);
 }
