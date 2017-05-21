@@ -1,7 +1,7 @@
 extern crate seer;
 
 #[test]
-fn simple() {
+fn symbolic_simple() {
     let consumer = |complete| {
         match complete {
             ::seer::ExecutionComplete { result: Err(::seer::StaticEvalError::Panic),
@@ -19,7 +19,7 @@ fn simple() {
 
 
 #[test]
-fn manticore() {
+fn symbolic_manticore() {
     let consumer = |complete| {
         match complete {
             ::seer::ExecutionComplete { result: Err(::seer::StaticEvalError::Panic),
