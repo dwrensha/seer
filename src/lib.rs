@@ -38,6 +38,7 @@ mod driver;
 pub use error::{
     EvalError,
     EvalResult,
+    StaticEvalError,
 };
 
 pub use eval_context::{
