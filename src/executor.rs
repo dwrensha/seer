@@ -19,7 +19,7 @@ use value::{PrimVal, Value};
 pub struct Executor<'a, 'tcx: 'a> {
     tcx: TyCtxt<'a, 'tcx, 'tcx>,
     queue: VecDeque<EvalContext<'a, 'tcx>>,
-    consumer: Option<Rc<RefCell<FnMut(ExecutionComplete)>>>,
+    consumer: Option<Rc<RefCell<FnMut(ExecutionComplete) -> bool>>>,
 }
 
 pub struct FinishStep<'tcx> {
@@ -77,7 +77,7 @@ impl <'a, 'tcx: 'a> Executor<'a, 'tcx> {
         tcx: TyCtxt<'a, 'tcx, 'tcx>,
         def_id: DefId,
         limits: ResourceLimits,
-        consumer: Rc<RefCell<FnMut(ExecutionComplete)>>) -> Self
+        consumer: Rc<RefCell<FnMut(ExecutionComplete) -> bool>>) -> Self
     {
         let mut result = Executor {
             tcx: tcx,
@@ -169,15 +169,15 @@ impl <'a, 'tcx: 'a> Executor<'a, 'tcx> {
                     }
                 }
                 Ok((false, _)) => {
-                    match self.consumer {
+                    let go_on = match self.consumer {
                         Some(ref f) => {
                             (&mut *f.borrow_mut())(ExecutionComplete {
                                 input: ecx.memory.constraints.get_satisfying_values(HACK_ABSTRACT_ALLOC_LEN),
                                 result: Ok(())
-                            });
+                            })
                         }
-                        None => ()
-                    }
+                        None => true,
+                    };
                     ecx.memory.root_abstract_alloc.map(|p| {
                         ecx.memory.deallocate(p).unwrap()
                     });
@@ -185,18 +185,25 @@ impl <'a, 'tcx: 'a> Executor<'a, 'tcx> {
                     if leaks != 0 {
                         self.tcx.sess.err("the evaluated program leaked memory");
                     }
+                    if !go_on {
+                        break
+                    }
                 }
                 Err(e) => {
-                    match self.consumer {
+                    let go_on = match self.consumer {
                         Some(ref f) => {
                             (&mut *f.borrow_mut())(ExecutionComplete {
                                 input: ecx.memory.constraints.get_satisfying_values(HACK_ABSTRACT_ALLOC_LEN),
                                 result: Err(e.into())
-                            });
+                            })
                         }
-                        None => ()
+                        None => true,
+                    };
+                    //  report(tcx, &ecx, e);
+
+                    if !go_on {
+                        break
                     }
-//                    report(tcx, &ecx, e);
                 }
             }
         }

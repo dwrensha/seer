@@ -276,7 +276,6 @@ fn mir_binop_to_ast<'a>(
     right: z3::Ast<'a>)
     -> z3::Ast<'a>
 {
-    println!("operator: {:?}", operator);
     match operator {
         mir::BinOp::Eq => {
             left._eq(&right)

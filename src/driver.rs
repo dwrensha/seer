@@ -20,8 +20,9 @@ pub enum Mode {
     RunSymbolic,
 }
 
-struct SeerCompilerCalls(RustcDefaultCalls, Mode,
-                         Option<Rc<RefCell<FnMut(::ExecutionComplete) + 'static>>>);
+struct SeerCompilerCalls(
+    RustcDefaultCalls, Mode,
+    Option<Rc<RefCell<FnMut(::ExecutionComplete) -> bool + 'static>>>);
 
 impl<'a> CompilerCalls<'a> for SeerCompilerCalls {
     fn early_callback(
@@ -95,7 +96,7 @@ fn after_analysis_run_main<'a, 'tcx>(state: &mut CompileState<'a, 'tcx>) {
 }
 
 fn after_analysis_run_symbolic<'a, 'tcx>(
-    consumer: Rc<RefCell<FnMut(::ExecutionComplete) + 'static>>)
+    consumer: Rc<RefCell<FnMut(::ExecutionComplete) -> bool + 'static>>)
     -> Box<Fn(&mut CompileState) + 'static>
 {
     Box::new(move |state: &mut CompileState| {
@@ -104,10 +105,11 @@ fn after_analysis_run_symbolic<'a, 'tcx>(
         let tcx = state.tcx.unwrap();
         let limits = resource_limits_from_attributes(state);
 
-        struct Visitor<'a, 'tcx: 'a>(::ResourceLimits,
-                                     TyCtxt<'a, 'tcx, 'tcx>,
-                                     &'a CompileState<'a, 'tcx>,
-                                     Rc<RefCell<FnMut(::ExecutionComplete) + 'static>>);
+        struct Visitor<'a, 'tcx: 'a>(
+            ::ResourceLimits,
+            TyCtxt<'a, 'tcx, 'tcx>,
+            &'a CompileState<'a, 'tcx>,
+            Rc<RefCell<FnMut(::ExecutionComplete) -> bool + 'static>>);
         impl<'a, 'tcx: 'a, 'hir> itemlikevisit::ItemLikeVisitor<'hir> for Visitor<'a, 'tcx> {
             fn visit_item(&mut self, i: &'hir hir::Item) {
                 if let hir::Item_::ItemFn(_, _, _, _, _, body_id) = i.node {
@@ -178,7 +180,7 @@ fn find_sysroot() -> String {
 }
 
 fn main_helper(mut args: Vec<String>, mode: Mode,
-               consumer: Option<Rc<RefCell<FnMut(::ExecutionComplete) + 'static>>>)
+               consumer: Option<Rc<RefCell<FnMut(::ExecutionComplete) -> bool + 'static>>>)
 {
     let sysroot_flag = String::from("--sysroot");
     if !args.contains(&sysroot_flag) {
@@ -199,8 +201,9 @@ pub fn run_main(args: Vec<String>) {
     main_helper(args, Mode::RunMain, None);
 }
 
+/// The consumer returns `true` if it wants the executor to continue.
 pub fn run_symbolic<F>(args: Vec<String>, consumer: F)
-    where F: FnMut(::ExecutionComplete) + 'static
+    where F: FnMut(::ExecutionComplete) -> bool + 'static
 {
     main_helper(args, Mode::RunSymbolic, Some(Rc::new(RefCell::new(consumer))));
 }

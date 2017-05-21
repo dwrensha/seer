@@ -40,6 +40,7 @@ fn main() {
     init_logger();
     let consumer = |complete| {
         println!("complete! {:?}", complete);
+        true
     };
     ::seer::run_symbolic(::std::env::args().collect(), consumer);
 }
