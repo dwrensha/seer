@@ -282,10 +282,15 @@ fn mir_binop_to_ast<'a>(
                 .ite(&z3::Ast::bv_from_u64(&ctx, 1, 8), /// HACK
                      &z3::Ast::bv_from_u64(&ctx, 0, 8))
         }
+        mir::BinOp::Lt => {
+            left.bvult(&right)
+                .ite(&z3::Ast::bv_from_u64(&ctx, 1, 8), /// HACK
+                     &z3::Ast::bv_from_u64(&ctx, 0, 8))
+        }
+
         mir::BinOp::Add => left.bvadd(&right),
         mir::BinOp::BitXor => left.bvxor(&right),
         mir::BinOp::Mul => left.bvmul(&right),
-        mir::BinOp::Lt => left.bvult(&right),
         _ => {
             unimplemented!()
         }

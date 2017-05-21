@@ -211,7 +211,7 @@ impl <'a, 'tcx: 'a> Executor<'a, 'tcx> {
 }
 
 
-fn report(tcx: TyCtxt, ecx: &EvalContext, e: EvalError) {
+fn _report(tcx: TyCtxt, ecx: &EvalContext, e: EvalError) {
     let frame = ecx.stack().last().expect("stackframe was empty");
     let block = &frame.mir.basic_blocks()[frame.block];
     let span = if frame.stmt < block.statements.len() {
