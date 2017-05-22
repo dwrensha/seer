@@ -134,7 +134,10 @@ impl <'a, 'tcx: 'a> Executor<'a, 'tcx> {
     }
 
     pub fn push_eval_context(&mut self, ecx: EvalContext<'a, 'tcx>) {
-        self.queue.push_back(ecx);
+        // Push onto the front so that we go depth-first.
+        // Pushing onto the back consume more memory and be less
+        // cache-friendly.
+        self.queue.push_front(ecx);
     }
 
     fn pop_eval_context(&mut self) -> Option<EvalContext<'a, 'tcx>> {

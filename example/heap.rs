@@ -5,7 +5,7 @@ use std::collections::BinaryHeap;
 
 #[symbolic_execution_entry_point]
 fn heap(data: &[u8]) {
-    let mut data2 = data[..7].to_owned();
+    let data2 = data.to_owned();
 
     let mut heap = BinaryHeap::new();
     for d in data2 {
