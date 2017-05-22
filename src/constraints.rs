@@ -13,12 +13,6 @@ pub struct ConstraintContext {
     constraints: Vec<Constraint>,
 }
 
-#[derive(Clone, Debug)]
-pub enum Val {
-    _Variable(usize),
-    _Constant(u128),
-}
-
 #[derive(Clone, Copy, Debug)]
 pub enum Constraint {
     Binop {
