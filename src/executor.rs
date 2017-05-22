@@ -190,19 +190,19 @@ impl <'a, 'tcx: 'a> Executor<'a, 'tcx> {
                     }
                 }
                 Err(e) => {
-                    let go_on = match self.consumer {
+                    match self.consumer {
                         Some(ref f) => {
-                            (&mut *f.borrow_mut())(ExecutionComplete {
+                            let go_on = (&mut *f.borrow_mut())(ExecutionComplete {
                                 input: ecx.memory.constraints.get_satisfying_values(HACK_ABSTRACT_ALLOC_LEN),
-                                result: Err(e.into())
-                            })
+                                result: Err(e.clone().into())
+                            });
+                            if !go_on {
+                                break
+                            }
                         }
-                        None => true,
-                    };
-                    //  report(tcx, &ecx, e);
-
-                    if !go_on {
-                        break
+                        None => { // HACK?
+                            report(self.tcx, &ecx, e);
+                        }
                     }
                 }
             }
@@ -211,7 +211,7 @@ impl <'a, 'tcx: 'a> Executor<'a, 'tcx> {
 }
 
 
-fn _report(tcx: TyCtxt, ecx: &EvalContext, e: EvalError) {
+fn report(tcx: TyCtxt, ecx: &EvalContext, e: EvalError) {
     let frame = ecx.stack().last().expect("stackframe was empty");
     let block = &frame.mir.basic_blocks()[frame.block];
     let span = if frame.stmt < block.statements.len() {

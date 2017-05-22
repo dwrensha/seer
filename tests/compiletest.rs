@@ -191,7 +191,7 @@ fn compile_test() {
         for_all_targets(&sysroot, |target| {
             miri_pass("tests/run-pass", &target, host);
         });
-        //compile_fail(&sysroot);
+        compile_fail(&sysroot);
     }
 }
 
