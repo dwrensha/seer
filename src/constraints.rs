@@ -4,11 +4,16 @@ use z3;
 use memory::{AbstractVariable, SByte};
 use value::{PrimVal, PrimValKind};
 
+#[derive(Debug, Clone, Copy)]
+enum VarType {
+    Bool, BitVec8,
+}
+
 #[derive(Clone, Debug)]
 pub struct ConstraintContext {
     /// Each entry represents a variable. The index is the variable ID and
-    /// the value is the number of bits in the variable.
-    variables: Vec<u8>,
+    /// the value is the variable's type.
+    variables: Vec<VarType>,
 
     constraints: Vec<Constraint>,
 }
@@ -21,6 +26,7 @@ pub enum Constraint {
         rhs_operand1: PrimVal,
         rhs_operand2: PrimVal,
         lhs: PrimVal,
+        lhs_kind: PrimValKind,
     },
 
     // lhs = op(rhs)
@@ -41,9 +47,10 @@ impl Constraint {
         rhs_operand1: PrimVal,
         rhs_operand2: PrimVal,
         lhs: PrimVal,
+        lhs_kind: PrimValKind,
     ) -> Self {
         Constraint::Binop {
-            operator, kind, rhs_operand1, rhs_operand2, lhs,
+            operator, kind, rhs_operand1, rhs_operand2, lhs, lhs_kind,
         }
     }
 
@@ -71,10 +78,14 @@ impl ConstraintContext {
         }
     }
 
-    pub fn allocate_abstract_byte(&mut self) -> SByte {
+    fn allocate_abstract_var(&mut self, var_type: VarType) -> SByte {
         let id = self.variables.len() as u32;
-        self.variables.push(8);
+        self.variables.push(var_type);
         SByte::Abstract(AbstractVariable(id))
+    }
+
+    pub fn allocate_abstract_byte(&mut self) -> SByte {
+        self.allocate_abstract_var(VarType::BitVec8)
     }
 
     pub fn push_constraint(&mut self, constraint: Constraint) {
@@ -82,30 +93,37 @@ impl ConstraintContext {
     }
 
     /// Creates a fresh abstract PrimVal `X` and adds a constraint
-    /// `X == left binop right`. Returns `X`.
+    /// `X == rhs_operand1 binop rhs_operand2`. Returns `X`.
     pub fn add_binop_constraint(
         &mut self,
         bin_op: mir::BinOp,
-        left: PrimVal,
-        right: PrimVal,
+        rhs_operand1: PrimVal,
+        rhs_operand2: PrimVal,
         kind: PrimValKind) -> PrimVal {
 
         use value::PrimValKind::*;
 
-        let num_bytes = match kind {
-            U8 | I8 => 1,
+        let mut buffer = [SByte::Concrete(0); 8];
+
+        let (num_bytes, var_type, lhs_kind) = match (bin_op, kind) {
+            (mir::BinOp::Eq, _) |
+            (mir::BinOp::Ne, _) |
+            (mir::BinOp::Lt, _) |
+            (mir::BinOp::Le, _) |
+            (mir::BinOp::Gt, _) |
+            (mir::BinOp::Ge, _) => (1, VarType::Bool, PrimValKind::Bool),
+            (_, U8) | (_, I8) => (1, VarType::BitVec8, kind),
             _ => unimplemented!(),
         };
 
-
-        let mut buffer = [SByte::Concrete(0); 8];
         for idx in 0..num_bytes {
-            buffer[idx] = self.allocate_abstract_byte();
+            buffer[idx] = self.allocate_abstract_var(var_type);
         }
 
         let primval = PrimVal::Abstract(buffer);
 
-        let constraint = Constraint::new_binop(bin_op, kind, left, right, primval);
+        let constraint = Constraint::new_binop(bin_op, kind, rhs_operand1,
+                                               rhs_operand2, primval, lhs_kind);
 
         self.push_constraint(constraint);
 
@@ -122,16 +140,16 @@ impl ConstraintContext {
 
         use value::PrimValKind::*;
 
-        let num_bytes = match kind {
-            U8 | I8 => 1,
-            Bool => 1, // HACK?
+        let (num_bytes, var_type) = match kind {
+            Bool => (1, VarType::Bool),
+            U8 | I8 => (1, VarType::BitVec8),
             _ => unimplemented!(),
         };
 
 
         let mut buffer = [SByte::Concrete(0); 8];
         for idx in 0..num_bytes {
-            buffer[idx] = self.allocate_abstract_byte();
+            buffer[idx] = self.allocate_abstract_var(var_type);
         }
 
         let primval = PrimVal::Abstract(buffer);
@@ -149,12 +167,20 @@ impl ConstraintContext {
 
         let mut consts = Vec::new();
 
-        for (idx, bitsize) in self.variables.iter().enumerate() {
-            consts.push(ctx.numbered_bitvector_const(idx as u32, *bitsize as u32));
+        for (idx, var_type) in self.variables.iter().enumerate() {
+            match *var_type {
+                VarType::Bool => {
+                    consts.push(ctx.numbered_bool_const(idx as u32));
+                }
+                VarType::BitVec8 => {
+                    consts.push(ctx.numbered_bitvector_const(idx as u32, 8));
+                }
+            }
+
         }
 
         for c in &self.constraints {
-            solver.assert(&constraint_to_ast(&ctx, *c));
+            solver.assert(&self.constraint_to_ast(&ctx, *c));
         }
 
         let mut result = Vec::new();
@@ -178,8 +204,16 @@ impl ConstraintContext {
 
         let mut consts = Vec::new();
 
-        for (idx, bitsize) in self.variables.iter().enumerate() {
-            consts.push(ctx.numbered_bitvector_const(idx as u32, *bitsize as u32));
+        for (idx, var_type) in self.variables.iter().enumerate() {
+            match *var_type {
+                VarType::Bool => {
+                    consts.push(ctx.numbered_bool_const(idx as u32));
+                }
+                VarType::BitVec8 => {
+                    consts.push(ctx.numbered_bitvector_const(idx as u32, 8));
+                }
+            }
+
         }
 
         let mut all_constraints: Vec<Constraint> = Vec::new();
@@ -187,167 +221,157 @@ impl ConstraintContext {
         all_constraints.extend(constraints.iter().clone());
 
         for c in all_constraints {
-            solver.assert(&constraint_to_ast(&ctx, c));
+            solver.assert(&self.constraint_to_ast(&ctx, c));
         }
 
         solver.check()
     }
-}
 
-fn constraint_to_ast<'a>(
-    ctx: &'a z3::Context,
-    constraint: Constraint)
-    -> z3::Ast<'a>
-{
-    match constraint {
-        Constraint::Binop { operator, kind, lhs, rhs_operand1,
-                            rhs_operand2, .. } => {
-            primval_to_ast(&ctx, lhs, kind)._eq(
-                &mir_binop_to_ast(
-                    &ctx,
-                    operator,
-                    primval_to_ast(&ctx, rhs_operand1, kind),
-                    primval_to_ast(&ctx, rhs_operand2, kind)))
-        }
-        Constraint::Unop { operator, kind, lhs, operand, .. } => {
-            primval_to_ast(&ctx, lhs, kind)._eq(
-                &mir_unop_to_ast(
-                    &ctx,
-                    operator,
-                    primval_to_ast(&ctx, operand, kind)))
-        }
 
-        Constraint::Compare { op, lhs, rhs, .. } => {
-            // TODO(cleanup) this duplicates some functionality of mir_binop_to_ast().
-            // Can we consolidate?
-            match op {
-                mir::BinOp::Eq => {
-                    primval_to_ast(&ctx, lhs, PrimValKind::U8)._eq( // HACK
-                        &primval_to_ast(&ctx, rhs, PrimValKind::U8))
-                }
-                mir::BinOp::Ne => {
-                    primval_to_ast(&ctx, lhs, PrimValKind::U8)._eq( // HACK
-                        &primval_to_ast(&ctx, rhs, PrimValKind::U8)).not()
-                }
-                mir::BinOp::Gt => {
-                    primval_to_ast(&ctx, lhs, PrimValKind::U8).bvugt( // HACK
-                        &primval_to_ast(&ctx, rhs, PrimValKind::U8))
-                }
+    fn constraint_to_ast<'a>(
+        &self,
+        ctx: &'a z3::Context,
+        constraint: Constraint)
+        -> z3::Ast<'a>
+    {
+        match constraint {
+            Constraint::Binop { operator, kind, lhs, rhs_operand1,
+                                rhs_operand2, lhs_kind } => {
+                self.primval_to_ast(&ctx, lhs, lhs_kind)._eq(
+                    &self.mir_binop_to_ast(
+                        &ctx,
+                        operator,
+                        self.primval_to_ast(&ctx, rhs_operand1, kind),
+                        self.primval_to_ast(&ctx, rhs_operand2, kind)))
+            }
+            Constraint::Unop { operator, kind, lhs, operand, .. } => {
+                self.primval_to_ast(&ctx, lhs, kind)._eq(
+                    &self.mir_unop_to_ast(
+                        &ctx,
+                        operator,
+                        self.primval_to_ast(&ctx, operand, kind)))
+            }
 
-                mir::BinOp::Lt => {
-                    primval_to_ast(&ctx, lhs, PrimValKind::U8).bvult( // HACK
-                        &primval_to_ast(&ctx, rhs, PrimValKind::U8))
-                }
+            Constraint::Compare { op, lhs, rhs, kind, .. } => {
+                // TODO(cleanup) this duplicates some functionality of mir_binop_to_ast().
+                // Can we consolidate?
+                match op {
+                    mir::BinOp::Eq => {
+                        self.primval_to_ast(&ctx, lhs, kind)._eq(
+                            &self.primval_to_ast(&ctx, rhs, kind))
+                    }
+                    mir::BinOp::Ne => {
+                        self.primval_to_ast(&ctx, lhs, kind)._eq(
+                            &self.primval_to_ast(&ctx, rhs, kind)).not()
+                    }
+                    mir::BinOp::Gt => {
+                        self.primval_to_ast(&ctx, lhs, kind).bvugt( // TODO what if signed?
+                            &self.primval_to_ast(&ctx, rhs, kind))
+                    }
 
-                _ => {
-                    unimplemented!()
+                    mir::BinOp::Lt => {
+                        self.primval_to_ast(&ctx, lhs, kind).bvult( // TODO what if signed?
+                            &self.primval_to_ast(&ctx, rhs, kind))
+                    }
+
+                    _ => {
+                        unimplemented!()
+                    }
                 }
             }
         }
     }
-}
 
-fn primval_to_ast<'a>(ctx: &'a z3::Context,
-                      primval: PrimVal,
-                      kind: PrimValKind)
-                  -> z3::Ast<'a>
-{
-    match primval {
-        PrimVal::Undef => {
-            unimplemented!()
-        }
-        PrimVal::Ptr(_) => {
-            unimplemented!()
-        }
-        PrimVal::Abstract(sbytes) => {
-            match kind {
-                PrimValKind::U8 | PrimValKind::Bool => {
-                    match sbytes[0] {
-                        SByte::Abstract(b) => {
-                            ctx.numbered_bitvector_const(b.0, 8)
-                        }
-                        SByte::Concrete(_b) => {
-                            unimplemented!()
+    fn primval_to_ast<'a>(
+        &self,
+        ctx: &'a z3::Context,
+        primval: PrimVal,
+        kind: PrimValKind)
+        -> z3::Ast<'a>
+    {
+        match primval {
+            PrimVal::Undef => {
+                unimplemented!()
+            }
+            PrimVal::Ptr(_) => {
+                unimplemented!()
+            }
+            PrimVal::Abstract(sbytes) => {
+                match kind {
+                    PrimValKind::U8 => {
+                        match sbytes[0] {
+                            SByte::Abstract(b) => {
+                                ctx.numbered_bitvector_const(b.0, 8)
+                            }
+                            SByte::Concrete(_b) => {
+                                unimplemented!()
+                            }
                         }
                     }
+                    PrimValKind::Bool => {
+                        match sbytes[0] {
+                            SByte::Abstract(b) => {
+                                ctx.numbered_bool_const(b.0)
+                            }
+                            SByte::Concrete(_b) => {
+                                unimplemented!()
+                            }
+                        }
+                    }
+
+                    _ => {
+                        unimplemented!()
+                    }
                 }
-                _ => {
-                    unimplemented!()
+            }
+            PrimVal::Bytes(v) => {
+                match kind {
+                    PrimValKind::U8 => z3::Ast::bv_from_u64(&ctx, v as u64, 8),
+                    PrimValKind::Bool => z3::Ast::from_bool(&ctx, v != 0),
+                    _ => {
+                        unimplemented!()
+                    }
                 }
             }
         }
-        PrimVal::Bytes(v) => {
-            if let PrimValKind::U8 = kind {
-                z3::Ast::bv_from_u64(&ctx, v as u64, 8)
-            } else {
+    }
+
+    fn mir_binop_to_ast<'a>(
+        &self,
+        _ctx: &'a z3::Context,
+        operator: mir::BinOp,
+        left: z3::Ast<'a>,
+        right: z3::Ast<'a>)
+        -> z3::Ast<'a>
+    {
+        match operator {
+            mir::BinOp::Eq => left._eq(&right),
+            mir::BinOp::Ne => left._eq(&right).not(),
+            mir::BinOp::Lt => left.bvult(&right),
+            mir::BinOp::Le => left.bvule(&right),
+            mir::BinOp::Gt => left.bvugt(&right),
+            mir::BinOp::Ge => left.bvuge(&right),
+            mir::BinOp::Add => left.bvadd(&right),
+            mir::BinOp::BitXor => left.bvxor(&right),
+            mir::BinOp::Mul => left.bvmul(&right),
+            _ => {
                 unimplemented!()
             }
         }
     }
-}
 
-fn mir_binop_to_ast<'a>(
-    ctx: &'a z3::Context,
-    operator: mir::BinOp,
-    left: z3::Ast<'a>,
-    right: z3::Ast<'a>)
-    -> z3::Ast<'a>
-{
-    match operator {
-        mir::BinOp::Eq => {
-            left._eq(&right)
-                .ite(&z3::Ast::bv_from_u64(&ctx, 1, 8), // HACK
-                     &z3::Ast::bv_from_u64(&ctx, 0, 8))
-        }
-        mir::BinOp::Ne => {
-            left._eq(&right)
-                .ite(&z3::Ast::bv_from_u64(&ctx, 0, 8), // HACK
-                     &z3::Ast::bv_from_u64(&ctx, 1, 8))
-        }
-
-        mir::BinOp::Lt => {
-            left.bvult(&right)
-                .ite(&z3::Ast::bv_from_u64(&ctx, 1, 8), // HACK
-                     &z3::Ast::bv_from_u64(&ctx, 0, 8))
-        }
-        mir::BinOp::Le => {
-            left.bvule(&right)
-                .ite(&z3::Ast::bv_from_u64(&ctx, 1, 8), // HACK
-                     &z3::Ast::bv_from_u64(&ctx, 0, 8))
-        }
-
-        mir::BinOp::Gt => {
-            left.bvugt(&right)
-                .ite(&z3::Ast::bv_from_u64(&ctx, 1, 8), // HACK
-                     &z3::Ast::bv_from_u64(&ctx, 0, 8))
-        }
-        mir::BinOp::Ge => {
-            left.bvuge(&right)
-                .ite(&z3::Ast::bv_from_u64(&ctx, 1, 8), // HACK
-                     &z3::Ast::bv_from_u64(&ctx, 0, 8))
-        }
-
-        mir::BinOp::Add => left.bvadd(&right),
-        mir::BinOp::BitXor => left.bvxor(&right),
-        mir::BinOp::Mul => left.bvmul(&right),
-        _ => {
-            unimplemented!()
-        }
-    }
-}
-
-fn mir_unop_to_ast<'a>(
-    ctx: &'a z3::Context,
-    operator: mir::UnOp,
-    val: z3::Ast<'a>,)
-    -> z3::Ast<'a>
-{
-    match operator {
-        mir::UnOp::Not => {
-            val.bvxor(&z3::Ast::bv_from_u64(&ctx, 1, 8)) // HACK
-        }
-        mir::UnOp::Neg => {
-            unimplemented!()
+    fn mir_unop_to_ast<'a>(
+        &self,
+        _ctx: &'a z3::Context,
+        operator: mir::UnOp,
+        val: z3::Ast<'a>,)
+        -> z3::Ast<'a>
+    {
+        match operator {
+            mir::UnOp::Not => val.not(),
+            mir::UnOp::Neg => {
+                unimplemented!()
+            }
         }
     }
 }
