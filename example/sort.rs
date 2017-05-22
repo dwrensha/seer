@@ -3,7 +3,7 @@
 
 #[symbolic_execution_entry_point]
 fn sort(data: &[u8]) {
-    let mut data2 = data[..10].to_owned();
+    let mut data2 = data[..5].to_owned();
 
     data2.sort();
 
