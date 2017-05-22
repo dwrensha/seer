@@ -229,6 +229,20 @@ impl PrimValKind {
         }
     }
 
+    // TODO(dwrensha) is this duplicated functionality?
+    pub fn num_bytes(self) -> usize {
+        use self::PrimValKind::*;
+        match self {
+            I8 | U8 => 1,
+            I16 | U16 => 2,
+            I32 | U32 => 4,
+            F32 => 4,
+            I64 | U64 => 8,
+            F64 => 8,
+            _ => unimplemented!(),
+        }
+    }
+
     pub fn is_signed_int(self) -> bool {
         use self::PrimValKind::*;
         match self {

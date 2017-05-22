@@ -16,15 +16,33 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         let kind = self.ty_to_primval_kind(src_ty)?;
 
         use value::PrimValKind::*;
-        match kind {
-            F32 => self.cast_float(val.to_f32()? as f64, dest_ty),
-            F64 => self.cast_float(val.to_f64()?, dest_ty),
+        match val {
+            PrimVal::Abstract(_sbytes) => {
+                let dest_kind = self.ty_to_primval_kind(dest_ty)?;
+                if kind.is_int() && dest_kind.is_int() {
+                    let src_size = kind.num_bytes();
+                    let dest_size = dest_kind.num_bytes();
+                    if src_size < dest_size {
+                        Ok(val)
+                    } else {
+                        unimplemented!()
+                    }
+                } else {
+                    unimplemented!()
+                }
+            }
+            _ => {
+                match kind {
+                    F32 => self.cast_float(val.to_f32()? as f64, dest_ty),
+                    F64 => self.cast_float(val.to_f64()?, dest_ty),
 
-            I8 | I16 | I32 | I64 | I128 => self.cast_signed_int(val.to_i128()?, dest_ty),
+                    I8 | I16 | I32 | I64 | I128 => self.cast_signed_int(val.to_i128()?, dest_ty),
 
-            Bool | Char | U8 | U16 | U32 | U64 | U128 => self.cast_int(val.to_u128()?, dest_ty, false),
+                    Bool | Char | U8 | U16 | U32 | U64 | U128 => self.cast_int(val.to_u128()?, dest_ty, false),
 
-            FnPtr | Ptr => self.cast_ptr(val.to_ptr()?, dest_ty),
+                    FnPtr | Ptr => self.cast_ptr(val.to_ptr()?, dest_ty),
+                }
+            }
         }
     }
 
