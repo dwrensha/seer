@@ -13,6 +13,12 @@ use value::Value;
 impl<'a, 'tcx> EvalContext<'a, 'tcx> {
     pub(crate) fn drop_lvalue(&mut self, lval: Lvalue<'tcx>, instance: ty::Instance<'tcx>, ty: Ty<'tcx>, span: Span) -> EvalResult<'tcx> {
         trace!("drop_lvalue: {:#?}", lval);
+
+        // FIXME: Surely there is a more robust  way to check for this case?
+        if format!("{:?}", ty) == "std::io::Stdin" {
+            return Ok(())
+        }
+
         let val = match self.force_allocation(lval)? {
             Lvalue::Ptr { ptr, extra: LvalueExtra::Vtable(vtable) } => Value::ByValPair(PrimVal::Ptr(ptr), PrimVal::Ptr(vtable)),
             Lvalue::Ptr { ptr, extra: LvalueExtra::Length(len) } => Value::ByValPair(PrimVal::Ptr(ptr), PrimVal::Bytes(len as u128)),
