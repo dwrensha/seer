@@ -429,6 +429,15 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                         self.goto_block(block);
                         return Ok(true);
                     }
+                    "std::io::stdin" => {
+                        let (_lval, block) = destination.expect("std::io::stdin() does not diverge");
+                        self.goto_block(block);
+                        return Ok(true);
+                    }
+                    "<std::io::Stdin as std::io::Read>::read" => {
+                        let (_lval, _block) = destination.expect("Stdin::read() does not diverge");
+                        unimplemented!()
+                    }
                     _ => {},
                 }
                 return Err(EvalError::NoMirFor(path));
