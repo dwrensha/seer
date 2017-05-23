@@ -604,6 +604,22 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
         self.mark_definedness(ptr, size, true)?;
         self.get_bytes_unchecked_mut(ptr, size, align)
     }
+
+    pub fn write_fresh_abstract_bytes(&mut self, ptr: Pointer, size: u64)
+        -> EvalResult<'tcx>
+    {
+        let mut abytes = Vec::new();
+        for _ in 0..(size as usize){
+            abytes.push(self.constraints.allocate_abstract_byte());
+        }
+
+        let sbytes = self.get_bytes_mut(ptr, size, 1)?;
+        for idx in 0..(size as usize){
+            sbytes[idx] = abytes[idx];
+        }
+
+        Ok(())
+    }
 }
 
 /// Reading and writing

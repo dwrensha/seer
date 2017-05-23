@@ -214,7 +214,9 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 if self.eval_fn_call_inner(
                     instance,
                     destination,
+                    arg_operands,
                     span,
+                    sig,
                 )? {
                     return Ok(None);
                 }
@@ -263,7 +265,9 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 if self.eval_fn_call_inner(
                     instance,
                     destination,
+                    arg_operands,
                     span,
+                    sig,
                 )? {
                     return Ok(None);
                 }
@@ -354,7 +358,9 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 if self.eval_fn_call_inner(
                     instance,
                     destination,
+                    arg_operands,
                     span,
+                    sig,
                 )? {
                     return Ok(None);
                 }
@@ -401,7 +407,9 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         &mut self,
         instance: ty::Instance<'tcx>,
         destination: Option<(Lvalue<'tcx>, mir::BasicBlock)>,
+        arg_operands: &[mir::Operand<'tcx>],
         span: Span,
+        sig: ty::FnSig<'tcx>,
     ) -> EvalResult<'tcx, bool> {
         trace!("eval_fn_call_inner: {:#?}, {:#?}", instance, destination);
 
@@ -435,8 +443,33 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                         return Ok(true);
                     }
                     "<std::io::Stdin as std::io::Read>::read" => {
-                        let (_lval, _block) = destination.expect("Stdin::read() does not diverge");
-                        unimplemented!()
+                        let (lval, block) = destination.expect("Stdin::read() does not diverge");
+                        let args_res: EvalResult<Vec<Value>> = arg_operands.iter()
+                            .map(|arg| self.eval_operand(arg))
+                            .collect();
+                        let args = args_res?;
+
+                        let num_bytes = match args[1] {
+                            Value::ByValPair(PrimVal::Ptr(ptr), PrimVal::Bytes(len)) => {
+                                self.memory.write_fresh_abstract_bytes(ptr, len as u64)?;
+                                len
+                            }
+                            _ => {
+                                unimplemented!()
+                            }
+                        };
+
+                        let _ = sig.output();
+
+                        // Write `Ok(num_bytes)` to the return value.
+                        let dest_ptr = self.force_allocation(lval)?.to_ptr();
+
+                        // FIXME make this more robust
+                        self.memory.write_uint(dest_ptr, 0, 8)?; // discriminant
+                        self.memory.write_uint(dest_ptr.offset(8), num_bytes, 8)?; // payload
+
+                        self.goto_block(block);
+                        return Ok(true);
                     }
                     _ => {},
                 }
