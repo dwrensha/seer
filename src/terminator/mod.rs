@@ -471,6 +471,11 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                         self.goto_block(block);
                         return Ok(true);
                     }
+                    "std::io::Stdin::lock" => {
+                        return Err(
+                            EvalError::Unimplemented(
+                                "no abstract implementation for stdin.lock()".into()));
+                    }
                     _ => {},
                 }
                 return Err(EvalError::NoMirFor(path));
