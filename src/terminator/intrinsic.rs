@@ -289,8 +289,8 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
 
             "needs_drop" => {
                 let ty = instance.substs.type_at(0);
-                let env = self.tcx.empty_parameter_environment();
-                let needs_drop = ty.needs_drop(self.tcx, &env);
+                let env = ty::ParamEnv::empty();
+                let needs_drop = ty.needs_drop(self.tcx, env);
                 self.write_primval(dest, PrimVal::from_bool(needs_drop), dest_ty)?;
             }
 

@@ -404,7 +404,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
     pub(super) fn type_is_sized(&self, ty: Ty<'tcx>) -> bool {
         // generics are weird, don't run this function on a generic
         assert!(!ty.needs_subst());
-        ty.is_sized(self.tcx, &self.tcx.empty_parameter_environment(), DUMMY_SP)
+        ty.is_sized(self.tcx, ty::ParamEnv::empty(), DUMMY_SP)
     }
 
     pub fn load_mir(&self, instance: ty::InstanceDef<'tcx>) -> EvalResult<'tcx, &'tcx mir::Mir<'tcx>> {
@@ -1886,14 +1886,14 @@ pub fn needs_drop_glue<'a, 'tcx>(tcx: TyCtxt<'a, 'tcx, 'tcx>, t: Ty<'tcx>) -> bo
     // returned `false` does not appear unsound. The impact on
     // code quality is unknown at this time.)
 
-    let env = tcx.empty_parameter_environment();
-    if !t.needs_drop(tcx, &env) {
+    let env = ty::ParamEnv::empty();
+    if !t.needs_drop(tcx, env) {
         return false;
     }
     match t.sty {
         ty::TyAdt(def, _) if def.is_box() => {
             let typ = t.boxed_ty();
-            if !typ.needs_drop(tcx, &env) && type_is_sized(tcx, typ) {
+            if !typ.needs_drop(tcx, env) && type_is_sized(tcx, typ) {
                 tcx.infer_ctxt((), traits::Reveal::All).enter(|infcx| {
                     let layout = t.layout(&infcx).unwrap();
                     if layout.size(&tcx.data_layout).bytes() == 0 {
@@ -2014,7 +2014,7 @@ impl<'a, 'tcx> ::rustc::ty::fold::TypeFolder<'tcx, 'tcx> for AssociatedTypeNorma
 fn type_is_sized<'a, 'tcx>(tcx: TyCtxt<'a, 'tcx, 'tcx>, ty: Ty<'tcx>) -> bool {
     // generics are weird, don't run this function on a generic
     assert!(!ty.needs_subst());
-    ty.is_sized(tcx, &tcx.empty_parameter_environment(), DUMMY_SP)
+    ty.is_sized(tcx, ty::ParamEnv::empty(), DUMMY_SP)
 }
 
 /// Attempts to resolve an obligation. The result is a shallow vtable resolution -- meaning that we
