@@ -14,7 +14,9 @@ fn symbolic_simple() {
     };
 
     let args = vec!["run_symbolic".to_string(), "tests/symbolic/simple.rs".to_string()];
-    ::seer::run_symbolic(args, consumer);
+    ::seer::ExecutionConfig::new()
+        .consumer(consumer)
+        .run(args);
 }
 
 
@@ -36,7 +38,9 @@ fn symbolic_manticore() {
     };
 
     let args = vec!["run_symbolic".to_string(), "tests/symbolic/manticore.rs".to_string()];
-    ::seer::run_symbolic(args, consumer);
+    ::seer::ExecutionConfig::new()
+        .consumer(consumer)
+        .run(args);
 }
 
 
@@ -47,7 +51,7 @@ fn symbolic_comparisons() {
             ::seer::ExecutionComplete { result: Err(::seer::StaticEvalError::Panic),
                                         input } => {
                 assert_eq!(
-                    &input[..5],
+                    &input[..],
                     &[17, 18, 38, 37, 101]);
 
                 false
@@ -57,7 +61,9 @@ fn symbolic_comparisons() {
     };
 
     let args = vec!["run_symbolic".to_string(), "tests/symbolic/comparisons.rs".to_string()];
-    ::seer::run_symbolic(args, consumer);
+    ::seer::ExecutionConfig::new()
+        .consumer(consumer)
+        .run(args);
 }
 
 
@@ -68,7 +74,7 @@ fn symbolic_write_mem() {
             ::seer::ExecutionComplete { result: Err(::seer::StaticEvalError::Panic),
                                         input } => {
                 assert_eq!(
-                    &input[..4],
+                    &input[..],
                     &[7, 3, 21, 21]);
 
                 false
@@ -78,5 +84,7 @@ fn symbolic_write_mem() {
     };
 
     let args = vec!["run_symbolic".to_string(), "tests/symbolic/write_mem.rs".to_string()];
-    ::seer::run_symbolic(args, consumer);
+    ::seer::ExecutionConfig::new()
+        .consumer(consumer)
+        .run(args);
 }

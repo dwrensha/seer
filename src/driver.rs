@@ -4,25 +4,12 @@ use rustc_driver::{self, Compilation, CompilerCalls, RustcDefaultCalls};
 use rustc_driver::driver::{CompileState, CompileController};
 use rustc_errors;
 use rustc::session::config::{self, Input, ErrorOutputType};
-use rustc::hir::{self, itemlikevisit};
-use rustc::ty::TyCtxt;
 use syntax;
 use syntax::ast::{MetaItemKind, NestedMetaItemKind, self};
 use std::path::PathBuf;
 use std;
-use std::rc::Rc;
-use std::cell::RefCell;
 
-
-#[derive(Clone, Copy, Debug)]
-pub enum Mode {
-    RunMain,
-    RunSymbolic,
-}
-
-struct SeerCompilerCalls(
-    RustcDefaultCalls, Mode,
-    Option<Rc<RefCell<FnMut(::ExecutionComplete) -> bool + 'static>>>);
+struct SeerCompilerCalls(RustcDefaultCalls, ::ExecutionConfig);
 
 impl<'a> CompilerCalls<'a> for SeerCompilerCalls {
     fn early_callback(
@@ -59,11 +46,8 @@ impl<'a> CompilerCalls<'a> for SeerCompilerCalls {
     fn build_controller(&mut self, sess: &Session, matches: &getopts::Matches) -> CompileController<'a> {
         let mut control = self.0.build_controller(sess, matches);
         control.after_hir_lowering.callback = Box::new(after_hir_lowering);
-        control.after_analysis.callback = match (self.1, self.2.take()) {
-            (Mode::RunMain, None) => Box::new(after_analysis_run_main),
-            (Mode::RunSymbolic, Some(consumer)) => after_analysis_run_symbolic(consumer),
-            _ => unreachable!(),
-        };
+        control.after_analysis.callback = after_analysis_run_main(self.1.clone());
+
         if std::env::var("MIRI_HOST_TARGET") != Ok("yes".to_owned()) {
             // only fully compile targets on the host
             control.after_analysis.stop = Compilation::Stop;
@@ -77,26 +61,7 @@ fn after_hir_lowering(state: &mut CompileState) {
     state.session.plugin_attributes.borrow_mut().push(attr);
 }
 
-fn after_analysis_run_main<'a, 'tcx>(state: &mut CompileState<'a, 'tcx>) {
-    state.session.abort_if_errors();
-
-    let tcx = state.tcx.unwrap();
-    let limits = resource_limits_from_attributes(state);
-
-    if let Some((entry_node_id, _)) = *state.session.entry_fn.borrow() {
-        let entry_def_id = tcx.hir.local_def_id(entry_node_id);
-
-        let mut executor = ::executor::Executor::new_main(tcx, entry_def_id, limits);
-        executor.run();
-
-        state.session.abort_if_errors();
-    } else {
-        println!("no main function found, assuming auxiliary build");
-    }
-}
-
-fn after_analysis_run_symbolic<'a, 'tcx>(
-    consumer: Rc<RefCell<FnMut(::ExecutionComplete) -> bool + 'static>>)
+fn after_analysis_run_main<'a, 'tcx>(config: ::ExecutionConfig)
     -> Box<Fn(&mut CompileState) + 'static>
 {
     Box::new(move |state: &mut CompileState| {
@@ -105,29 +70,16 @@ fn after_analysis_run_symbolic<'a, 'tcx>(
         let tcx = state.tcx.unwrap();
         let limits = resource_limits_from_attributes(state);
 
-        struct Visitor<'a, 'tcx: 'a>(
-            ::ResourceLimits,
-            TyCtxt<'a, 'tcx, 'tcx>,
-            &'a CompileState<'a, 'tcx>,
-            Rc<RefCell<FnMut(::ExecutionComplete) -> bool + 'static>>);
-        impl<'a, 'tcx: 'a, 'hir> itemlikevisit::ItemLikeVisitor<'hir> for Visitor<'a, 'tcx> {
-            fn visit_item(&mut self, i: &'hir hir::Item) {
-                if let hir::Item_::ItemFn(_, _, _, _, _, body_id) = i.node {
-                    if i.attrs.iter().any(|attr| attr.name().map_or(false, |n| n == "symbolic_execution_entry_point")) {
-                        let did = self.1.hir.body_owner_def_id(body_id);
-                        let mut executor =
-                            ::executor::Executor::new_symbolic(self.1, did, self.0,
-                                                               self.3.clone());
-                        executor.run();
-                        self.2.session.abort_if_errors();
-                    }
-                }
-            }
-            fn visit_trait_item(&mut self, _trait_item: &'hir hir::TraitItem) {}
-            fn visit_impl_item(&mut self, _impl_item: &'hir hir::ImplItem) {}
+        if let Some((entry_node_id, _)) = *state.session.entry_fn.borrow() {
+            let entry_def_id = tcx.hir.local_def_id(entry_node_id);
+
+            let mut executor = ::executor::Executor::new(tcx, entry_def_id, limits, config.clone());
+            executor.run();
+
+            state.session.abort_if_errors();
+        } else {
+            println!("no main function found, assuming auxiliary build");
         }
-        state.hir_crate.unwrap().visit_all_item_likes(&mut Visitor(limits, tcx, state,
-                                                                   consumer.clone()));
     })
 }
 
@@ -179,8 +131,7 @@ fn find_sysroot() -> String {
     }
 }
 
-fn main_helper(mut args: Vec<String>, mode: Mode,
-               consumer: Option<Rc<RefCell<FnMut(::ExecutionComplete) -> bool + 'static>>>)
+pub fn main_helper(mut args: Vec<String>, config: ::ExecutionConfig)
 {
     let sysroot_flag = String::from("--sysroot");
     if !args.contains(&sysroot_flag) {
@@ -193,17 +144,6 @@ fn main_helper(mut args: Vec<String>, mode: Mode,
     // for auxilary builds in unit tests
     args.push("-Zalways-encode-mir".to_owned());
 
-    rustc_driver::run_compiler(&args, &mut SeerCompilerCalls(RustcDefaultCalls, mode, consumer),
+    rustc_driver::run_compiler(&args, &mut SeerCompilerCalls(RustcDefaultCalls, config),
                                None, None);
-}
-
-pub fn run_main(args: Vec<String>) {
-    main_helper(args, Mode::RunMain, None);
-}
-
-/// The consumer returns `true` if it wants the executor to continue.
-pub fn run_symbolic<F>(args: Vec<String>, consumer: F)
-    where F: FnMut(::ExecutionComplete) -> bool + 'static
-{
-    main_helper(args, Mode::RunSymbolic, Some(Rc::new(RefCell::new(consumer))));
 }

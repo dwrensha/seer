@@ -38,5 +38,8 @@ fn init_logger() {
 
 fn main() {
     init_logger();
-    ::seer::run_main(::std::env::args().collect());
+
+    ::seer::ExecutionConfig::new()
+        .emit_error(true)
+        .run(::std::env::args().collect());
 }

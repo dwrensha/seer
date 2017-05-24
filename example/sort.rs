@@ -1,14 +1,13 @@
-#![feature(custom_attribute)]
-#![no_main]
+fn main() {
+    use std::io::Read;
+    let mut data: Vec<u8> = vec![0; 5];
+    let mut stdin = ::std::io::stdin();
+    stdin.read(&mut data[..]).unwrap();
 
-#[symbolic_execution_entry_point]
-fn sort(data: &[u8]) {
-    let mut data2 = data[..5].to_owned();
-
-    data2.sort();
+    data.sort();
 
     let mut floor = 0;
-    for d in data2 {
+    for d in data {
         if d < floor {
             panic!()
         }

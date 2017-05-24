@@ -9,11 +9,17 @@ enum VarType {
     Bool, BitVec8,
 }
 
+#[derive(Debug, Clone, Copy)]
+enum VarOrigin {
+    StdIn, // abstract byte read from stdin
+    Inner, // anything else
+}
+
 #[derive(Clone, Debug)]
 pub struct ConstraintContext {
     /// Each entry represents a variable. The index is the variable ID and
     /// the value is the variable's type.
-    variables: Vec<VarType>,
+    variables: Vec<(VarType, VarOrigin)>,
 
     constraints: Vec<Constraint>,
 }
@@ -78,14 +84,14 @@ impl ConstraintContext {
         }
     }
 
-    fn allocate_abstract_var(&mut self, var_type: VarType) -> SByte {
+    fn allocate_abstract_var(&mut self, var_type: VarType, origin: VarOrigin) -> SByte {
         let id = self.variables.len() as u32;
-        self.variables.push(var_type);
+        self.variables.push((var_type, origin));
         SByte::Abstract(AbstractVariable(id))
     }
 
-    pub fn allocate_abstract_byte(&mut self) -> SByte {
-        self.allocate_abstract_var(VarType::BitVec8)
+    pub fn fresh_stdin_byte(&mut self) -> SByte {
+        self.allocate_abstract_var(VarType::BitVec8, VarOrigin::StdIn)
     }
 
     pub fn push_constraint(&mut self, constraint: Constraint) {
@@ -117,7 +123,7 @@ impl ConstraintContext {
         };
 
         for idx in 0..num_bytes {
-            buffer[idx] = self.allocate_abstract_var(var_type);
+            buffer[idx] = self.allocate_abstract_var(var_type, VarOrigin::Inner);
         }
 
         let primval = PrimVal::Abstract(buffer);
@@ -149,7 +155,7 @@ impl ConstraintContext {
 
         let mut buffer = [SByte::Concrete(0); 8];
         for idx in 0..num_bytes {
-            buffer[idx] = self.allocate_abstract_var(var_type);
+            buffer[idx] = self.allocate_abstract_var(var_type, VarOrigin::Inner);
         }
 
         let primval = PrimVal::Abstract(buffer);
@@ -160,20 +166,26 @@ impl ConstraintContext {
         primval
     }
 
-    pub fn get_satisfying_values(&self, len: usize) -> Vec<u8> {
+    pub fn get_satisfying_values(&self) -> Vec<u8> {
         let cfg = z3::Config::new();
         let ctx = z3::Context::new(&cfg);
         let solver = z3::Solver::new(&ctx);
 
         let mut consts = Vec::new();
 
-        for (idx, var_type) in self.variables.iter().enumerate() {
-            match *var_type {
+        let mut result_consts = Vec::new();
+
+        for (idx, v) in self.variables.iter().enumerate() {
+            let (var_type, var_origin) = *v;
+            match var_type {
                 VarType::Bool => {
                     consts.push(ctx.numbered_bool_const(idx as u32));
                 }
                 VarType::BitVec8 => {
                     consts.push(ctx.numbered_bitvector_const(idx as u32, 8));
+                    if let VarOrigin::StdIn = var_origin {
+                        result_consts.push(ctx.numbered_bitvector_const(idx as u32, 8));
+                    }
                 }
             }
 
@@ -183,11 +195,12 @@ impl ConstraintContext {
             solver.assert(&self.constraint_to_ast(&ctx, *c));
         }
 
-        let mut result = Vec::new();
         assert!(solver.check());
         let model = solver.get_model();
-        for idx in 0..len {
-            result.push(model.eval(&consts[idx]).unwrap().as_u64().unwrap() as u8);
+
+        let mut result = Vec::new();
+        for rc in result_consts {
+            result.push(model.eval(&rc).unwrap().as_u64().unwrap() as u8);
         }
 
         result
@@ -204,8 +217,9 @@ impl ConstraintContext {
 
         let mut consts = Vec::new();
 
-        for (idx, var_type) in self.variables.iter().enumerate() {
-            match *var_type {
+        for (idx, v) in self.variables.iter().enumerate() {
+            let (var_type, _) = *v;
+            match var_type {
                 VarType::Bool => {
                     consts.push(ctx.numbered_bool_const(idx as u32));
                 }

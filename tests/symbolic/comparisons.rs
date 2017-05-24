@@ -1,10 +1,11 @@
-#![feature(custom_attribute)]
-#![no_main]
+fn main() {
+    use std::io::Read;
 
-#[symbolic_execution_entry_point]
-fn comparisons(data: &[u8]) {
+    let mut data: Vec<u8> = vec![0; 5];
+    let mut stdin = ::std::io::stdin();
+    stdin.read(&mut data[..]).unwrap();
 
-    // should panic on [ 17, 18, 38, 37, 101, .. ];
+    // should panic on [ 17, 18, 38, 37, 101 ];
 
     if data.len() >= 5 {
         if 16 < data[0] && data[0] < data[1] && data[1] <= 18 {

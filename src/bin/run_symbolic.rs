@@ -47,5 +47,8 @@ fn main() {
             true
         }
     };
-    ::seer::run_symbolic(::std::env::args().collect(), consumer);
+
+    ::seer::ExecutionConfig::new()
+        .consumer(consumer)
+        .run(::std::env::args().collect());
 }

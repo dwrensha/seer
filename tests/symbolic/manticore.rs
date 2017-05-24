@@ -1,10 +1,6 @@
 // Example adapted from https://blog.trailofbits.com/2017/05/15/magic-with-manticore/
 // libfuzzer fails to find the panic quickly.
 
-#![feature(custom_attribute)]
-#![no_main]
-
-
 fn check_char_0(mut ch: u8) -> Result<(), ()> {
     ch ^= 97;
 
@@ -144,9 +140,14 @@ fn check(buf: &[u8]) -> Result<(), ()> {
 }
 
 
-#[symbolic_execution_entry_point]
-pub fn manticore(data: &[u8]) {
-    if Ok(()) == check(data) && &data[12..] == &[1,2,3,4,5,50,51,29,212] {
+pub fn main() {
+    use std::io::Read;
+
+    let mut data: Vec<u8> = vec![0; 21];
+    let mut stdin = ::std::io::stdin();
+    stdin.read(&mut data[..]).unwrap();
+
+    if Ok(()) == check(&data[..]) && &data[12..] == &[1,2,3,4,5,50,51,29,212] {
         panic!("found the secret code");
     }
 }

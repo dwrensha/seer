@@ -1,14 +1,13 @@
-#![feature(custom_attribute)]
-#![no_main]
-
 use std::collections::BinaryHeap;
 
-#[symbolic_execution_entry_point]
-fn heap(data: &[u8]) {
-    let data2 = data.to_owned();
+fn main() {
+    use std::io::Read;
+    let mut data: Vec<u8> = vec![0; 11];
+    let mut stdin = ::std::io::stdin();
+    stdin.read(&mut data[..]).unwrap();
 
     let mut heap = BinaryHeap::new();
-    for d in data2 {
+    for d in data {
         heap.push(d);
     }
 

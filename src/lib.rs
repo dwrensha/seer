@@ -50,11 +50,7 @@ pub use eval_context::{
 
 pub use executor::{
     ExecutionComplete,
-};
-
-pub use driver::{
-    run_main,
-    run_symbolic,
+    ExecutionConfig,
 };
 
 pub use lvalue::{

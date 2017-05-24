@@ -1,9 +1,11 @@
-#![feature(custom_attribute)]
-#![no_main]
+use std::io::Read;
 
-#[symbolic_execution_entry_point]
-fn simple(data: &[u8]) {
-    if !data.is_empty() && data[0] == 43 {
+fn main() {
+    let mut data: Vec<u8> = vec![0; 1];
+    let mut stdin = ::std::io::stdin();
+    stdin.read(&mut data[..]).unwrap();
+
+    if data[0] == 43 {
         panic!()
     }
 }

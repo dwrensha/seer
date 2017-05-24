@@ -1,10 +1,12 @@
-#![feature(custom_attribute)]
-#![no_main]
+fn main() {
+    use std::io::Read;
 
-#[symbolic_execution_entry_point]
-fn write_mem(data: &[u8]) {
+    let mut data: Vec<u8> = vec![0; 4];
+    let mut stdin = ::std::io::stdin();
+    stdin.read(&mut data[..]).unwrap();
 
-    // should panic on [ 7, 3, 21, 21, .. ]
+
+    // should panic on [ 7, 3, 21, 21 ]
 
     if data.len() >= 4 {
         let mut v = vec![0; data.len()];

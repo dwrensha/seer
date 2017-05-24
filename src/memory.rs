@@ -167,8 +167,6 @@ pub struct Memory<'a, 'tcx> {
     literal_alloc_cache: HashMap<Vec<u8>, AllocId>,
 
     pub constraints: ConstraintContext,
-
-    pub root_abstract_alloc: Option<Pointer>,
 }
 
 const ZST_ALLOC_ID: AllocId = AllocId(0);
@@ -188,7 +186,6 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
             static_alloc: HashSet::new(),
             literal_alloc_cache: HashMap::new(),
             constraints: ConstraintContext::new(),
-            root_abstract_alloc: None,
         }
     }
 
@@ -248,23 +245,6 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
         self.alloc_map.insert(id, alloc);
         Ok(Pointer::new(id, 0))
 
-    }
-
-    /// Allocate `size` abstract bytes and mark them as defined.
-    pub fn allocate_abstract(&mut self, size: u64, align: u64)
-                             -> EvalResult<'tcx, Pointer> {
-        if size == 0 {
-            return Ok(Pointer::zst_ptr());
-        }
-
-        let mut bytes = Vec::with_capacity(size as usize);
-        for _ in 0..size {
-            bytes.push(self.constraints.allocate_abstract_byte());
-        }
-
-        let ptr = self.allocate_inner(bytes, align)?;
-        self.mark_definedness(ptr, size, true)?;
-        Ok(ptr)
     }
 
     pub fn allocate(&mut self, size: u64, align: u64) -> EvalResult<'tcx, Pointer> {
@@ -610,7 +590,7 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
     {
         let mut abytes = Vec::new();
         for _ in 0..(size as usize){
-            abytes.push(self.constraints.allocate_abstract_byte());
+            abytes.push(self.constraints.fresh_stdin_byte());
         }
 
         let sbytes = self.get_bytes_mut(ptr, size, 1)?;

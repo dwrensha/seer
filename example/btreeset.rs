@@ -1,14 +1,13 @@
-#![feature(custom_attribute)]
-#![no_main]
-
 use std::collections::BTreeSet;
 
-#[symbolic_execution_entry_point]
-fn btreeset(data: &[u8]) {
-    let data2 = data.to_owned();
+fn main() {
+    use std::io::Read;
+    let mut data: Vec<u8> = vec![0; 17];
+    let mut stdin = ::std::io::stdin();
+    stdin.read(&mut data[..]).unwrap();
 
     let mut heap = BTreeSet::new();
-    for d in data2 {
+    for d in data {
         heap.insert(d);
     }
 
