@@ -4,7 +4,7 @@ use rustc::ty::Ty;
 use error::{EvalError, EvalResult};
 use eval_context::EvalContext;
 use lvalue::Lvalue;
-use memory::Pointer;
+use memory::{Pointer, SByte};
 use value::{
     PrimVal,
     PrimValKind,
@@ -262,6 +262,28 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         right: PrimVal,
         right_kind: PrimValKind,
     ) -> EvalResult<'tcx, (PrimVal, bool)> {
+
+        // These ops can have an RHS with a different numeric type.
+        if bin_op == mir::BinOp::Shl || bin_op == mir::BinOp::Shr {
+            match (left, right) {
+                (PrimVal::Abstract(abytes), PrimVal::Bytes(rn)) if rn % 8 == 0 => {
+                    let num_bytes = (rn / 8) as usize;
+                    match bin_op {
+                        mir::BinOp::Shl => {
+                            let mut buffer = [SByte::Concrete(0); 8];
+                            for idx in num_bytes .. 8 {
+                                buffer[idx] = abytes[idx - num_bytes];
+                            }
+                            return Ok((PrimVal::Abstract(buffer), false));
+                        }
+                        _ => unimplemented!(),
+                    }
+                    unimplemented!();
+                }
+                _ => unimplemented!(),
+            }
+        }
+
         if left_kind != right_kind {
             let msg = format!("unimplemented binary op: {:?}, {:?}, {:?}", left, right, bin_op);
             return Err(EvalError::Unimplemented(msg));
