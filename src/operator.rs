@@ -278,7 +278,6 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                         }
                         _ => unimplemented!(),
                     }
-                    unimplemented!();
                 }
                 _ => unimplemented!(),
             }

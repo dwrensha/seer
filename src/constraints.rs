@@ -119,6 +119,7 @@ impl ConstraintContext {
             (mir::BinOp::Gt, _) |
             (mir::BinOp::Ge, _) => (1, VarType::Bool, PrimValKind::Bool),
             (_, U8) | (_, I8) => (1, VarType::BitVec8, kind),
+            (_, U16) | (_, I16) => (2, VarType::BitVec8, kind),
             _ => unimplemented!(),
         };
 
