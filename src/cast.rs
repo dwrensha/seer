@@ -3,7 +3,7 @@ use syntax::ast::{FloatTy, IntTy, UintTy};
 
 use error::{EvalResult, EvalError};
 use eval_context::EvalContext;
-use memory::Pointer;
+use memory::{Pointer, SByte};
 use value::PrimVal;
 
 impl<'a, 'tcx> EvalContext<'a, 'tcx> {
@@ -17,16 +17,17 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
 
         use value::PrimValKind::*;
         match val {
-            PrimVal::Abstract(_sbytes) => {
+            PrimVal::Abstract(mut sbytes) => {
                 let dest_kind = self.ty_to_primval_kind(dest_ty)?;
                 if kind.is_int() && dest_kind.is_int() {
                     let src_size = kind.num_bytes();
                     let dest_size = dest_kind.num_bytes();
-                    if src_size < dest_size {
-                        Ok(val)
-                    } else {
-                        unimplemented!()
+                    for idx in dest_size .. src_size {
+                        sbytes[idx] = SByte::Concrete(0);
                     }
+                    // TODO(optimization): check to see if the cast has made
+                    // the value concrete.
+                    Ok(PrimVal::Abstract(sbytes))
                 } else {
                     unimplemented!()
                 }
