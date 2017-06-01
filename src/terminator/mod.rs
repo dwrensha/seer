@@ -9,7 +9,7 @@ use syntax::abi::Abi;
 use constraints::Constraint;
 use error::{EvalError, EvalResult};
 use eval_context::{EvalContext, IntegerExt, StackPopCleanup, is_inhabited};
-use executor::FinishStep;
+use executor::{FinishStep, FinishStepVariant};
 use lvalue::Lvalue;
 use memory::{Pointer, SByte};
 use value::{PrimVal, PrimValKind};
@@ -78,8 +78,10 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                             feasible_blocks_with_constraints.push(
                                 FinishStep {
                                     constraints: vec![eq_constraint],
-                                    goto_block: targets[index],
-                                    set_lvalue: None
+                                    variant: FinishStepVariant::Continue {
+                                        goto_block: targets[index],
+                                        set_lvalue: None,
+                                    },
                                 });
                         }
                     }
@@ -88,8 +90,10 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                         feasible_blocks_with_constraints.push(
                             FinishStep {
                                 constraints: otherwise_constraints,
-                                goto_block: targets[targets.len() - 1],
-                                set_lvalue: None
+                                variant: FinishStepVariant::Continue {
+                                    goto_block: targets[targets.len() - 1],
+                                    set_lvalue: None,
+                                }
                             });
                     }
 
@@ -152,25 +156,75 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             }
 
             Assert { ref cond, expected, ref msg, target, .. } => {
-                let cond_val = self.eval_operand_to_primval(cond)?.to_bool()?;
-                if expected == cond_val {
-                    self.goto_block(target);
-                    Ok(None)
-                } else {
-                    match *msg {
-                        mir::AssertMessage::BoundsCheck { ref len, ref index } => {
-                            let span = terminator.source_info.span;
-                            let len = self.eval_operand_to_primval(len)
-                                .expect("can't eval len")
-                                .to_u64()?;
-                            let index = self.eval_operand_to_primval(index)
-                                .expect("can't eval index")
-                                .to_u64()?;
-                            Err(EvalError::ArrayIndexOutOfBounds(span, len, index))
-                        },
-                        mir::AssertMessage::Math(ref err) =>
-                            Err(EvalError::Math(terminator.source_info.span, err.clone())),
+                let cond_val = self.eval_operand_to_primval(cond)?;
+                if cond_val.is_concrete() {
+                    let cond_val = cond_val.to_bool()?;
+                    if expected == cond_val {
+                        self.goto_block(target);
+                        Ok(None)
+                    } else {
+                        match *msg {
+                            mir::AssertMessage::BoundsCheck { ref len, ref index } => {
+                                let span = terminator.source_info.span;
+                                let len = self.eval_operand_to_primval(len)
+                                    .expect("can't eval len")
+                                    .to_u64()?;
+                                let index = self.eval_operand_to_primval(index)
+                                    .expect("can't eval index")
+                                    .to_u64()?;
+                                Err(EvalError::ArrayIndexOutOfBounds(span, len, index))
+                            },
+                            mir::AssertMessage::Math(ref err) =>
+                                Err(EvalError::Math(terminator.source_info.span, err.clone())),
+                        }
                     }
+                } else {
+                    let expected_val = PrimVal::from_bool(expected);
+                    let succeed_constraints = vec![
+                        Constraint::new_compare(
+                            mir::BinOp::Eq, PrimValKind::Bool, cond_val, expected_val)];
+
+                    let fail_constraints = vec![
+                        Constraint::new_compare(
+                            mir::BinOp::Ne, PrimValKind::Bool, cond_val, expected_val)];
+
+                    let mut finish_steps = Vec::new();
+
+                    if self.memory.constraints.is_feasible_with(&succeed_constraints[..]) {
+                        finish_steps.push(
+                            FinishStep {
+                                constraints: succeed_constraints,
+                                variant: FinishStepVariant::Continue {
+                                    goto_block: target,
+                                    set_lvalue: None,
+                                },
+                            });
+                    }
+
+                    if self.memory.constraints.is_feasible_with(&fail_constraints[..]) {
+                        let e = match *msg {
+                            mir::AssertMessage::BoundsCheck { ref len, ref index } => {
+                                let span = terminator.source_info.span;
+                                let len = self.eval_operand_to_primval(len)
+                                    .expect("can't eval len")
+                                    .to_u64()?;
+                                let index = self.eval_operand_to_primval(index)
+                                    .expect("can't eval index")
+                                    .to_u64()?;
+                                EvalError::ArrayIndexOutOfBounds(span, len, index)
+                            },
+                            mir::AssertMessage::Math(ref err) =>
+                                EvalError::Math(terminator.source_info.span, err.clone()),
+                        };
+
+                        finish_steps.push(
+                            FinishStep {
+                                constraints: fail_constraints,
+                                variant: FinishStepVariant::Error(e),
+                            });
+                    }
+
+                    Ok(Some(finish_steps))
                 }
             },
 
@@ -674,15 +728,21 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                                 abstract_branches.push(
                                     FinishStep {
                                         constraints: lt_constraints,
-                                        goto_block: target,
-                                        set_lvalue: Some((dest, PrimVal::from_i128(-1), dest_ty))
+                                        variant: FinishStepVariant::Continue {
+                                            goto_block: target,
+                                            set_lvalue: Some(
+                                                (dest, PrimVal::from_i128(-1), dest_ty)),
+                                        },
                                     });
 
                                 abstract_branches.push(
                                     FinishStep {
                                         constraints: gt_constraints,
-                                        goto_block: target,
-                                        set_lvalue: Some((dest, PrimVal::from_u128(1), dest_ty))
+                                        variant: FinishStepVariant::Continue {
+                                            goto_block: target,
+                                            set_lvalue: Some(
+                                                (dest, PrimVal::from_u128(1), dest_ty)),
+                                        },
                                     });
                             }
                             _ => unimplemented!()
@@ -702,8 +762,10 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 } else {
                     abstract_branches.push(FinishStep {
                         constraints: equal_constraints,
-                        goto_block: target,
-                        set_lvalue: Some((dest, PrimVal::from_u128(0), dest_ty))
+                        variant: FinishStepVariant::Continue {
+                            goto_block: target,
+                            set_lvalue: Some((dest, PrimVal::from_u128(0), dest_ty)),
+                        },
                     });
                     return Ok(Some(abstract_branches));
                 }

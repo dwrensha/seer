@@ -23,8 +23,15 @@ pub struct Executor<'a, 'tcx: 'a> {
 
 pub struct FinishStep<'tcx> {
     pub constraints: Vec<Constraint>,
-    pub goto_block: mir::BasicBlock,
-    pub set_lvalue: Option<(Lvalue<'tcx>, PrimVal, Ty<'tcx>)>,
+    pub variant: FinishStepVariant<'tcx>,
+}
+
+pub enum FinishStepVariant<'tcx> {
+    Continue {
+        goto_block: mir::BasicBlock,
+        set_lvalue: Option<(Lvalue<'tcx>, PrimVal, Ty<'tcx>)>,
+    },
+    Error(EvalError<'tcx>),
 }
 
 #[derive(Clone)]
@@ -130,15 +137,22 @@ impl <'a, 'tcx: 'a> Executor<'a, 'tcx> {
                     } else {
                         let iter = ::std::iter::repeat(ecx).zip(branches.into_iter());
                         for (mut cx, finish_step) in iter {
-                            let FinishStep {constraints, goto_block, set_lvalue} = finish_step;
+                            let FinishStep {constraints, variant} = finish_step;
                             for constraint in constraints {
                                 cx.memory.constraints.push_constraint(constraint);
-                                if let Some((lvalue, prim, ty)) = set_lvalue {
-                                    if let Err(_) = cx.write_primval(lvalue, prim, ty) {
+                                match variant {
+                                    FinishStepVariant::Continue { goto_block, set_lvalue} => {
+                                        if let Some((lvalue, prim, ty)) = set_lvalue {
+                                            if let Err(_) = cx.write_primval(lvalue, prim, ty) {
+                                                unimplemented!()
+                                            }
+                                        }
+                                        cx.goto_block(goto_block);
+                                    }
+                                    FinishStepVariant::Error(_) => {
                                         unimplemented!()
                                     }
                                 }
-                                cx.goto_block(goto_block);
                             }
                             self.push_eval_context(cx);
                         }
