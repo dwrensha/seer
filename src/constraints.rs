@@ -120,6 +120,7 @@ impl ConstraintContext {
             (mir::BinOp::Ge, _) => (1, VarType::Bool, PrimValKind::Bool),
             (_, U8) | (_, I8) => (1, VarType::BitVec8, kind),
             (_, U16) | (_, I16) => (2, VarType::BitVec8, kind),
+            (_, U32) | (_, I32) => (4, VarType::BitVec8, kind),
             _ => unimplemented!(),
         };
 
@@ -366,6 +367,8 @@ impl ConstraintContext {
                     PrimValKind::Bool => z3::Ast::from_bool(&ctx, v != 0),
                     PrimValKind::U8 => z3::Ast::bv_from_u64(&ctx, v as u64, 8),
                     PrimValKind::U16 => z3::Ast::bv_from_u64(&ctx, v as u64, 16),
+                    PrimValKind::U32 => z3::Ast::bv_from_u64(&ctx, v as u64, 32),
+                    PrimValKind::U64 => z3::Ast::bv_from_u64(&ctx, v as u64, 64),
 
                     _ => {
                         unimplemented!()
