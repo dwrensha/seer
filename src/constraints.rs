@@ -397,6 +397,7 @@ impl ConstraintContext {
             mir::BinOp::Add => left.bvadd(&right),
             mir::BinOp::BitXor => left.bvxor(&right),
             mir::BinOp::Mul => left.bvmul(&right),
+            mir::BinOp::Shl => left.bvshl(&right),
             _ => {
                 unimplemented!()
             }

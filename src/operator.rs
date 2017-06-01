@@ -260,7 +260,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         left: PrimVal,
         left_kind: PrimValKind,
         right: PrimVal,
-        right_kind: PrimValKind,
+        mut right_kind: PrimValKind,
     ) -> EvalResult<'tcx, (PrimVal, bool)> {
 
         // These ops can have an RHS with a different numeric type.
@@ -279,7 +279,13 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                         _ => unimplemented!(),
                     }
                 }
-                _ => unimplemented!(),
+                _ => (),
+            }
+
+            if right_kind.num_bytes() < left_kind.num_bytes() {
+                right_kind = left_kind;
+            } else {
+                unimplemented!()
             }
         }
 
