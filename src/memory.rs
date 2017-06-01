@@ -49,7 +49,6 @@ pub struct Allocation {
 
     /// Whether the allocation may be modified.
     /// Use the `mark_static_initalized` method of `Memory` to ensure that an error occurs, if the memory of this
-
     /// allocation is modified or deallocated in the future.
     pub static_kind: StaticKind,
 }

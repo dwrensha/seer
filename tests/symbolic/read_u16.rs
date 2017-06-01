@@ -4,5 +4,9 @@ fn main() {
     let mut stdin = ::std::io::stdin();
     stdin.read(&mut data[..]).unwrap();
 
-    let _two_bytes = (data[0] as u16) + ((data[1] as u16) << 8);
+    let two_bytes = (data[0] as u16) + ((data[1] as u16) << 8);
+
+    if two_bytes == 0xffeeu16 {
+        panic!()
+    }
 }

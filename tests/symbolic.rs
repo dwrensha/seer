@@ -88,3 +88,27 @@ fn symbolic_write_mem() {
         .consumer(consumer)
         .run(args);
 }
+
+
+#[test]
+fn symbolic_read_u16() {
+    let consumer = |complete| {
+        match complete {
+            ::seer::ExecutionComplete { result: Err(::seer::StaticEvalError::Panic),
+                                        input } => {
+                assert_eq!(
+                    &input[..],
+                    &[0xee, 0xff]);
+
+                false
+            }
+            _ => true,
+        }
+    };
+
+    let args = vec!["run_symbolic".to_string(), "tests/symbolic/read_u16.rs".to_string()];
+    ::seer::ExecutionConfig::new()
+        .consumer(consumer)
+        .run(args);
+}
+

@@ -242,6 +242,41 @@ impl ConstraintContext {
         solver.check()
     }
 
+    fn sbyte_to_ast<'a>(
+        &self,
+        ctx: &'a z3::Context,
+        sbyte: SByte)
+        -> z3::Ast<'a>
+    {
+        match sbyte {
+            SByte::Abstract(b) => {
+                ctx.numbered_bitvector_const(b.0, 8)
+            }
+            SByte::Concrete(b) => {
+                z3::Ast::bv_from_u64(&ctx, b as u64, 8)
+            }
+        }
+    }
+
+    fn sbyte_slice_to_ast<'a>(
+        &self,
+        ctx: &'a z3::Context,
+        sbytes: &[SByte])
+        -> z3::Ast<'a>
+    {
+        if sbytes.is_empty() {
+            panic!("expected non-empty sbyte slice");
+        } else if sbytes.len() == 1 {
+            self.sbyte_to_ast(ctx, sbytes[0])
+        } else {
+            let mut result = self.sbyte_to_ast(ctx, sbytes[0]);
+            for sbyte in &sbytes[1..] {
+                result = self.sbyte_to_ast(ctx, *sbyte).concat(&result);
+            }
+
+            result
+        }
+    }
 
     fn constraint_to_ast<'a>(
         &self,
@@ -312,37 +347,26 @@ impl ConstraintContext {
                 unimplemented!()
             }
             PrimVal::Abstract(sbytes) => {
-                match kind {
-                    PrimValKind::U8 => {
-                        match sbytes[0] {
-                            SByte::Abstract(b) => {
-                                ctx.numbered_bitvector_const(b.0, 8)
-                            }
-                            SByte::Concrete(_b) => {
-                                unimplemented!()
-                            }
+                if let PrimValKind::Bool = kind {
+                    match sbytes[0] {
+                        SByte::Abstract(b) => {
+                            ctx.numbered_bool_const(b.0)
+                        }
+                        SByte::Concrete(_b) => {
+                            unimplemented!()
                         }
                     }
-                    PrimValKind::Bool => {
-                        match sbytes[0] {
-                            SByte::Abstract(b) => {
-                                ctx.numbered_bool_const(b.0)
-                            }
-                            SByte::Concrete(_b) => {
-                                unimplemented!()
-                            }
-                        }
-                    }
-
-                    _ => {
-                        unimplemented!()
-                    }
+                } else {
+                    let num_bytes = kind.num_bytes();
+                    self.sbyte_slice_to_ast(ctx, &sbytes[..num_bytes])
                 }
             }
             PrimVal::Bytes(v) => {
                 match kind {
-                    PrimValKind::U8 => z3::Ast::bv_from_u64(&ctx, v as u64, 8),
                     PrimValKind::Bool => z3::Ast::from_bool(&ctx, v != 0),
+                    PrimValKind::U8 => z3::Ast::bv_from_u64(&ctx, v as u64, 8),
+                    PrimValKind::U16 => z3::Ast::bv_from_u64(&ctx, v as u64, 16),
+
                     _ => {
                         unimplemented!()
                     }
