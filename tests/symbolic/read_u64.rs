@@ -14,7 +14,7 @@ fn main() {
         ((data[6] as u64) << 48) +
         ((data[7] as u64) << 56);
 
-    if eight_bytes == 0x1122334455667788u64 {
+    if eight_bytes == 0x1122334455667788u64 && eight_bytes.swap_bytes() == 0x8877665544332211u64 {
         panic!()
     }
 }

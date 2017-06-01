@@ -560,7 +560,19 @@ fn numeric_intrinsic<'tcx>(
     }
 
     let result_val = match name {
-        "bswap" => integer_intrinsic!("bswap", val, kind, swap_bytes),
+        "bswap" => {
+            if let PrimVal::Abstract(mut sbytes) = val {
+                let num_bytes = kind.num_bytes();
+                for idx in 0..(num_bytes / 2) {
+                    let tmp = sbytes[idx];
+                    sbytes[idx] = sbytes[num_bytes - idx - 1];
+                    sbytes[num_bytes - idx - 1] = tmp;
+                }
+                PrimVal::Abstract(sbytes)
+            } else {
+               integer_intrinsic!("bswap", val, kind, swap_bytes)
+           }
+        }
         "ctlz"  => integer_intrinsic!("ctlz",  val, kind, leading_zeros),
         "ctpop" => integer_intrinsic!("ctpop", val, kind, count_ones),
         "cttz"  => integer_intrinsic!("cttz",  val, kind, trailing_zeros),

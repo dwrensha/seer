@@ -6,7 +6,7 @@ fn main() {
 
     let two_bytes = (data[0] as u16) + ((data[1] as u16) << 8);
 
-    if two_bytes == 0xffeeu16 {
+    if two_bytes == 0xffeeu16 && two_bytes.swap_bytes() == 0xeeffu16 {
         panic!()
     }
 }

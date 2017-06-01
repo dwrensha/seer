@@ -10,7 +10,7 @@ fn main() {
         ((data[2] as u32) << 16) +
         ((data[3] as u32) << 24);
 
-    if four_bytes == 0x44332211u32 {
+    if four_bytes == 0x44332211u32 && four_bytes.swap_bytes() == 0x11223344u32 {
         panic!()
     }
 }
