@@ -50,3 +50,10 @@ fn symbolic_read_u32() {
     expect_panic("tests/symbolic/read_u32.rs", vec![0x11, 0x22, 0x33, 0x44]);
 }
 
+#[test]
+fn symbolic_read_u64() {
+    expect_panic(
+        "tests/symbolic/read_u64.rs",
+        vec![0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11]);
+}
+
