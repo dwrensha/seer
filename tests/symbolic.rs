@@ -1,114 +1,47 @@
 extern crate seer;
 
-#[test]
-fn symbolic_simple() {
-    let consumer = |complete| {
+fn expect_panic(filename: &str, expected_result: Vec<u8>) {
+    let consumer = move |complete| {
         match complete {
             ::seer::ExecutionComplete { result: Err(::seer::StaticEvalError::Panic),
                                         input } => {
-                assert_eq!(input[0], 43);
+                assert_eq!(input, expected_result);
                 false
             }
             _ => true,
         }
     };
 
-    let args = vec!["run_symbolic".to_string(), "tests/symbolic/simple.rs".to_string()];
+    let args = vec!["run_symbolic".to_string(), filename.to_string()];
     ::seer::ExecutionConfig::new()
         .consumer(consumer)
         .run(args);
 }
 
+#[test]
+fn symbolic_simple() {
+    expect_panic("tests/symbolic/simple.rs", vec![43]);
+}
 
 #[test]
 fn symbolic_manticore() {
-    let consumer = |complete| {
-        match complete {
-            ::seer::ExecutionComplete { result: Err(::seer::StaticEvalError::Panic),
-                                        input } => {
-                assert_eq!(
-                    &input[..],
-                    &[61, 77, 65, 78, 84, 73, 67, 79, 82, 69,
-                      61, 0, 1, 2, 3, 4, 5, 50, 51, 29, 212]);
-
-                false
-            }
-            _ => true,
-        }
-    };
-
-    let args = vec!["run_symbolic".to_string(), "tests/symbolic/manticore.rs".to_string()];
-    ::seer::ExecutionConfig::new()
-        .consumer(consumer)
-        .run(args);
+    expect_panic(
+        "tests/symbolic/manticore.rs",
+        vec![61, 77, 65, 78, 84, 73, 67, 79, 82, 69, 61, 0, 1, 2, 3, 4, 5, 50, 51, 29, 212]);
 }
-
 
 #[test]
 fn symbolic_comparisons() {
-    let consumer = |complete| {
-        match complete {
-            ::seer::ExecutionComplete { result: Err(::seer::StaticEvalError::Panic),
-                                        input } => {
-                assert_eq!(
-                    &input[..],
-                    &[17, 18, 38, 37, 101]);
-
-                false
-            }
-            _ => true,
-        }
-    };
-
-    let args = vec!["run_symbolic".to_string(), "tests/symbolic/comparisons.rs".to_string()];
-    ::seer::ExecutionConfig::new()
-        .consumer(consumer)
-        .run(args);
+    expect_panic("tests/symbolic/comparisons.rs", vec![17, 18, 38, 37, 101]);
 }
-
 
 #[test]
 fn symbolic_write_mem() {
-    let consumer = |complete| {
-        match complete {
-            ::seer::ExecutionComplete { result: Err(::seer::StaticEvalError::Panic),
-                                        input } => {
-                assert_eq!(
-                    &input[..],
-                    &[7, 3, 21, 21]);
-
-                false
-            }
-            _ => true,
-        }
-    };
-
-    let args = vec!["run_symbolic".to_string(), "tests/symbolic/write_mem.rs".to_string()];
-    ::seer::ExecutionConfig::new()
-        .consumer(consumer)
-        .run(args);
+    expect_panic("tests/symbolic/write_mem.rs", vec![7, 3, 21, 21]);
 }
-
 
 #[test]
 fn symbolic_read_u16() {
-    let consumer = |complete| {
-        match complete {
-            ::seer::ExecutionComplete { result: Err(::seer::StaticEvalError::Panic),
-                                        input } => {
-                assert_eq!(
-                    &input[..],
-                    &[0xee, 0xff]);
-
-                false
-            }
-            _ => true,
-        }
-    };
-
-    let args = vec!["run_symbolic".to_string(), "tests/symbolic/read_u16.rs".to_string()];
-    ::seer::ExecutionConfig::new()
-        .consumer(consumer)
-        .run(args);
+    expect_panic("tests/symbolic/read_u16.rs", vec![0xee, 0xff]);
 }
 
