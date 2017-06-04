@@ -218,21 +218,6 @@ impl ConstraintContext {
         let ctx = z3::Context::new(&cfg);
         let solver = z3::Solver::new(&ctx);
 
-        let mut consts = Vec::new();
-
-        for (idx, v) in self.variables.iter().enumerate() {
-            let (var_type, _) = *v;
-            match var_type {
-                VarType::Bool => {
-                    consts.push(ctx.numbered_bool_const(idx as u32));
-                }
-                VarType::BitVec8 => {
-                    consts.push(ctx.numbered_bitvector_const(idx as u32, 8));
-                }
-            }
-
-        }
-
         let mut all_constraints: Vec<Constraint> = Vec::new();
         all_constraints.extend(self.constraints.iter().clone());
         all_constraints.extend(constraints.iter().clone());
