@@ -1,7 +1,7 @@
 use rustc::traits::{self, Reveal};
 
 use eval_context::EvalContext;
-use memory::Pointer;
+use memory::{Pointer, PointerOffset};
 
 use rustc::hir::def_id::DefId;
 use rustc::ty::subst::Substs;
@@ -76,7 +76,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         let drop_fn = self.memory.read_ptr(vtable)?;
 
         // just a sanity check
-        assert_eq!(drop_fn.offset, 0);
+        assert_eq!(drop_fn.offset, PointerOffset::Concrete(0));
 
         // some values don't need to call a drop impl, so the value is null
         if drop_fn == Pointer::from_int(0) {

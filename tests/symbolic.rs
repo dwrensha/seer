@@ -57,3 +57,10 @@ fn symbolic_read_u64() {
         vec![0x88, 0x77, 0x66, 0x55, 0x44, 0x33, 0x22, 0x11]);
 }
 
+#[test]
+fn symbolic_indexing() {
+    expect_panic(
+        "tests/symbolic/indexing.rs",
+        vec![73]);
+}
+

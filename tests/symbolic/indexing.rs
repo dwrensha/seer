@@ -5,11 +5,11 @@ fn main() {
     stdin.read(&mut data[..]).unwrap();
 
     let mut v: Vec<u16> = Vec::new();
-    for idx in 0..256 {
+    for idx in 0..128 {
         v.push(idx);
     }
 
-    if v[data[0] as usize] == 73 {
+    if v[(data[0] & 0x7f) as usize] == 73 {
         panic!()
     }
 }

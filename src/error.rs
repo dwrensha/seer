@@ -2,7 +2,7 @@ use std::error::Error;
 use std::fmt;
 use rustc::mir;
 use rustc::ty::{FnSig, Ty, layout};
-use memory::Pointer;
+use memory::{Pointer, PointerOffset};
 use rustc_const_math::ConstMathErr;
 use syntax::codemap::Span;
 
@@ -137,8 +137,15 @@ impl<'tcx> fmt::Display for EvalError<'tcx> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             EvalError::PointerOutOfBounds { ptr, size, allocation_size } => {
-                write!(f, "memory access of {}..{} outside bounds of allocation {} which has size {}",
-                       ptr.offset, ptr.offset + size, ptr.alloc_id, allocation_size)
+                match ptr.offset {
+                    PointerOffset::Concrete(ptr_offset) => {
+                        write!(
+                            f,
+                            "memory access of {}..{} outside bounds of allocation {} which has size {}",
+                            ptr_offset, ptr_offset + size, ptr.alloc_id, allocation_size)
+                    }
+                    _ => unimplemented!(),
+                }
             },
             EvalError::NoMirFor(ref func) => write!(f, "no mir for `{}`", func),
             EvalError::FunctionPointerTyMismatch(sig, got) =>

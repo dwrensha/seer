@@ -1222,7 +1222,6 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 self.copy(src_ptr, dest_ptr, dest_ty)?;
                 write_dest(self, Value::ByRef(dest_ptr));
             }
-
         } else {
             // Finally, we have the simple case where neither source nor destination are
             // `ByRef`. We may simply copy the source value over the the destintion.
@@ -1395,6 +1394,10 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
 
     fn try_read_value(&mut self, ptr: Pointer, ty: Ty<'tcx>) -> EvalResult<'tcx, Option<Value>> {
         use syntax::ast::FloatTy;
+
+        if !ptr.is_concrete() {
+            return Ok(None);
+        }
 
         let val = match ty.sty {
             ty::TyBool => self.memory.read_bool(ptr)?,

@@ -4,7 +4,7 @@ use rustc::ty::Ty;
 use error::{EvalError, EvalResult};
 use eval_context::EvalContext;
 use lvalue::Lvalue;
-use memory::{Pointer, SByte};
+use memory::{Pointer, PointerOffset, SByte};
 use value::{
     PrimVal,
     PrimValKind,
@@ -164,9 +164,16 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
 
             (PrimVal::Ptr(left_ptr), PrimVal::Ptr(right_ptr)) => {
                 if left_ptr.alloc_id == right_ptr.alloc_id {
-                    // If the pointers are into the same allocation, fall through to the more general
-                    // match later, which will do comparisons on the pointer offsets.
-                    (left_ptr.offset as u128, right_ptr.offset as u128)
+                    match (left_ptr.offset, right_ptr.offset) {
+                        (PointerOffset::Concrete(left_offset),
+                         PointerOffset::Concrete(right_offset)) => {
+                            // If the pointers are into the same allocation, fall through to the
+                            // more general match later, which will do comparisons on the
+                            // pointer offsets.
+                            (left_offset as u128, right_offset as u128)
+                        }
+                        _ => unimplemented!(),
+                    }
                 } else {
                     return Ok((unrelated_ptr_ops(bin_op, left_ptr, right_ptr)?, false));
                 }
@@ -304,12 +311,17 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             Lt | Le | Gt | Ge => Err(EvalError::InvalidPointerMath),
             Add => {
                 // TODO what about overflow?
-                let offset = left.offset as u128 + right;
-                let alloc = self.memory.get(left.alloc_id)?;
-                if offset < alloc.bytes.len() as u128 {
-                    Ok(PrimVal::Ptr(Pointer::new(left.alloc_id, offset as u64)))
-                } else {
-                    unimplemented!()
+                match left.offset {
+                    PointerOffset::Concrete(left_offset) => {
+                        let offset = left_offset as u128 + right;
+                        let alloc = self.memory.get(left.alloc_id)?;
+                        if offset < alloc.bytes.len() as u128 {
+                            Ok(PrimVal::Ptr(Pointer::new(left.alloc_id, offset as u64)))
+                        } else {
+                            unimplemented!()
+                        }
+                    }
+                    _ => unimplemented!(),
                 }
             }
             Sub => {

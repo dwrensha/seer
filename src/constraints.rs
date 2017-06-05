@@ -6,7 +6,9 @@ use value::{PrimVal, PrimValKind};
 
 #[derive(Debug, Clone, Copy)]
 enum VarType {
-    Bool, BitVec8,
+    Bool,
+    BitVec8,
+    Array, // Array of BitVec8, indexed by BitVec64?
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -44,6 +46,13 @@ pub enum Constraint {
     },
 
     Compare { op: mir::BinOp, kind: PrimValKind, lhs: PrimVal, rhs: PrimVal, },
+
+    /// array[index] = value
+    ArrayElement {
+        array: AbstractVariable,
+        index: PrimVal,
+        value: SByte,
+    },
 }
 
 impl Constraint {
@@ -84,14 +93,14 @@ impl ConstraintContext {
         }
     }
 
-    fn allocate_abstract_var(&mut self, var_type: VarType, origin: VarOrigin) -> SByte {
+    fn allocate_abstract_var(&mut self, var_type: VarType, origin: VarOrigin) -> AbstractVariable {
         let id = self.variables.len() as u32;
         self.variables.push((var_type, origin));
-        SByte::Abstract(AbstractVariable(id))
+        AbstractVariable(id)
     }
 
     pub fn fresh_stdin_byte(&mut self) -> SByte {
-        self.allocate_abstract_var(VarType::BitVec8, VarOrigin::StdIn)
+        SByte::Abstract(self.allocate_abstract_var(VarType::BitVec8, VarOrigin::StdIn))
     }
 
     pub fn push_constraint(&mut self, constraint: Constraint) {
@@ -126,7 +135,7 @@ impl ConstraintContext {
         };
 
         for idx in 0..num_bytes {
-            buffer[idx] = self.allocate_abstract_var(var_type, VarOrigin::Inner);
+            buffer[idx] = SByte::Abstract(self.allocate_abstract_var(var_type, VarOrigin::Inner));
         }
 
         let primval = PrimVal::Abstract(buffer);
@@ -155,10 +164,9 @@ impl ConstraintContext {
             _ => unimplemented!(),
         };
 
-
         let mut buffer = [SByte::Concrete(0); 8];
         for idx in 0..num_bytes {
-            buffer[idx] = self.allocate_abstract_var(var_type, VarOrigin::Inner);
+            buffer[idx] = SByte::Abstract(self.allocate_abstract_var(var_type, VarOrigin::Inner));
         }
 
         let primval = PrimVal::Abstract(buffer);
@@ -167,6 +175,37 @@ impl ConstraintContext {
         self.push_constraint(constraint);
 
         primval
+    }
+
+    pub fn new_array(&mut self) -> AbstractVariable {
+        self.allocate_abstract_var(VarType::Array, VarOrigin::Inner)
+    }
+
+    pub fn set_array_element_constraint(
+        &mut self,
+        array: AbstractVariable,
+        index: PrimVal,
+        value: SByte)
+    {
+        self.push_constraint(
+            Constraint::ArrayElement {
+                array, index, value,
+            });
+    }
+
+    pub fn add_array_element_constraint(
+        &mut self,
+        array: AbstractVariable,
+        index: PrimVal)
+        -> SByte
+    {
+        let value = SByte::Abstract(self.allocate_abstract_var(VarType::BitVec8, VarOrigin::Inner));
+        self.push_constraint(
+            Constraint::ArrayElement {
+                array, index, value,
+            });
+
+        value
     }
 
     pub fn get_satisfying_values(&self) -> Vec<u8> {
@@ -189,6 +228,14 @@ impl ConstraintContext {
                     if let VarOrigin::StdIn = var_origin {
                         result_consts.push(ctx.numbered_bitvector_const(idx as u32, 8));
                     }
+                }
+                VarType::Array => {
+                    consts.push(
+                        ::z3::Ast::new_const(
+                            &::z3::Symbol::from_int(&ctx, idx as u32),
+                            &ctx.array_sort(
+                                &ctx.bitvector_sort(64),
+                                &ctx.bitvector_sort(8))));
                 }
             }
 
@@ -307,7 +354,7 @@ impl ConstraintContext {
                     }
 
                     mir::BinOp::Lt => {
-                        self.primval_to_ast(&ctx, lhs, kind).bvult( // TODO what if signed?
+                        self.primval_to_ast(ctx, lhs, kind).bvult( // TODO what if signed?
                             &self.primval_to_ast(&ctx, rhs, kind))
                     }
 
@@ -315,6 +362,17 @@ impl ConstraintContext {
                         unimplemented!()
                     }
                 }
+            }
+
+            Constraint::ArrayElement { array, index, value, } => {
+                let c = ::z3::Ast::new_const(
+                    &::z3::Symbol::from_int(ctx, array.0),
+                    &ctx.array_sort(
+                        &ctx.bitvector_sort(64),
+                        &ctx.bitvector_sort(8)));
+
+                c.select(&self.primval_to_ast(ctx, index, PrimValKind::U64))._eq(
+                    &self.sbyte_to_ast(ctx, value))
             }
         }
     }
@@ -381,6 +439,7 @@ impl ConstraintContext {
             mir::BinOp::Ge => left.bvuge(&right),
             mir::BinOp::Add => left.bvadd(&right),
             mir::BinOp::BitXor => left.bvxor(&right),
+            mir::BinOp::BitAnd => left.bvand(&right),
             mir::BinOp::Mul => left.bvmul(&right),
             mir::BinOp::Shl => left.bvshl(&right),
             _ => {

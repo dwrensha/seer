@@ -6,7 +6,7 @@ use rustc_data_structures::indexed_vec::Idx;
 use error::EvalResult;
 use eval_context::{EvalContext};
 use memory::Pointer;
-use value::{PrimVal, Value};
+use value::{PrimVal, PrimValKind, Value};
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum Lvalue<'tcx> {
@@ -346,10 +346,26 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 let elem_size = self.type_size(elem_ty)?.expect("slice element must be sized");
                 let n_ptr = self.eval_operand(operand)?;
                 let usize = self.tcx.types.usize;
-                let n = self.value_to_primval(n_ptr, usize)?.to_u64()?;
-                assert!(n < len);
-                let ptr = base_ptr.offset(n * elem_size);
-                (ptr, LvalueExtra::None)
+                let primval = self.value_to_primval(n_ptr, usize)?;
+                if let PrimVal::Abstract(_sbytes) = primval {
+                    // byte_offset = sbytes * elem_size
+                    let byte_offset = self.memory.constraints.add_binop_constraint(
+                        mir::BinOp::Mul,
+                        primval,
+                        PrimVal::Bytes(elem_size as u128),
+                        PrimValKind::U64);
+
+                    if let PrimVal::Abstract(sbytes) = byte_offset {
+                        (Pointer::new_abstract(base_ptr.alloc_id, sbytes), LvalueExtra::None)
+                    } else {
+                        unreachable!()
+                    }
+                } else {
+                    let n = primval.to_u64()?;
+                    assert!(n < len);
+                    let ptr = base_ptr.offset(n * elem_size);
+                    (ptr, LvalueExtra::None)
+                }
             }
 
             ConstantIndex { offset, min_length, from_end } => {
