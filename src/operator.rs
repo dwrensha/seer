@@ -283,16 +283,35 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                             }
                             return Ok((PrimVal::Abstract(buffer), false));
                         }
+                        mir::BinOp::Shr => {
+                            /// TODO what if the kind is signed?
+                            let mut buffer = [SByte::Concrete(0); 8];
+                            for idx in num_bytes .. 8 {
+                                buffer[idx - num_bytes] = abytes[idx];
+                            }
+                            return Ok((PrimVal::Abstract(buffer), false));
+                        }
                         _ => unimplemented!(),
                     }
                 }
                 _ => (),
             }
 
-            if right_kind.num_bytes() < left_kind.num_bytes() {
+            if right_kind.num_bytes() == left_kind.num_bytes() {
+                // do nothing
+            } else if right_kind.num_bytes() < left_kind.num_bytes() {
                 right_kind = left_kind;
             } else {
-                unimplemented!()
+                if let PrimVal::Bytes(n) = right {
+                    if n < 256 {
+                        // HACK
+                        right_kind = left_kind;
+                    } else {
+                        unimplemented!()
+                    }
+                } else {
+                    unimplemented!()
+                }
             }
         }
 

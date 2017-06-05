@@ -440,8 +440,10 @@ impl ConstraintContext {
             mir::BinOp::Add => left.bvadd(&right),
             mir::BinOp::BitXor => left.bvxor(&right),
             mir::BinOp::BitAnd => left.bvand(&right),
+            mir::BinOp::BitOr => left.bvor(&right),
             mir::BinOp::Mul => left.bvmul(&right),
             mir::BinOp::Shl => left.bvshl(&right),
+            mir::BinOp::Shr => left.bvlshr(&right), // TODO: bvashr on signed types?
             _ => {
                 unimplemented!()
             }
