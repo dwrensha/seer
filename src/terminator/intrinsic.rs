@@ -101,8 +101,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     Value::ByRef(_) => bug!("just read the value, can't be byref"),
                     Value::ByValPair(..) => bug!("atomic_cxchg doesn't work with nonprimitives"),
                 };
-                let kind = self.ty_to_primval_kind(ty)?;
-                let (val, _) = self.binary_op(mir::BinOp::Eq, old, kind, expect_old, kind)?;
+                let (val, _) = self.binary_op(mir::BinOp::Eq, old, ty, expect_old, ty)?;
                 let dest = self.force_allocation(dest)?.to_ptr();
                 self.write_pair_to_ptr(old, val, dest, dest_ty)?;
                 self.write_primval(Lvalue::from_ptr(ptr), change, ty)?;
@@ -123,7 +122,6 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     Value::ByValPair(..) => bug!("atomic_xadd_relaxed doesn't work with nonprimitives"),
                 };
                 self.write_primval(dest, old, ty)?;
-                let kind = self.ty_to_primval_kind(ty)?;
                 let op = match intrinsic_name.split('_').nth(1).unwrap() {
                     "or" => mir::BinOp::BitOr,
                     "xor" => mir::BinOp::BitXor,
@@ -133,7 +131,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     _ => bug!(),
                 };
                 // FIXME: what do atomics do on overflow?
-                let (val, _) = self.binary_op(op, old, kind, change, kind)?;
+                let (val, _) = self.binary_op(op, old, ty, change, ty)?;
                 self.write_primval(Lvalue::from_ptr(ptr), val, ty)?;
             },
 
@@ -217,7 +215,6 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
 
             "fadd_fast" | "fsub_fast" | "fmul_fast" | "fdiv_fast" | "frem_fast" => {
                 let ty = instance.substs.type_at(0);
-                let kind = self.ty_to_primval_kind(ty)?;
                 let a = self.value_to_primval(arg_vals[0], ty)?;
                 let b = self.value_to_primval(arg_vals[1], ty)?;
                 let op = match intrinsic_name {
@@ -228,7 +225,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     "frem_fast" => mir::BinOp::Rem,
                     _ => bug!(),
                 };
-                let result = self.binary_op(op, a, kind, b, kind)?;
+                let result = self.binary_op(op, a, ty, b, ty)?;
                 self.write_primval(dest, result.0, dest_ty)?;
             }
 

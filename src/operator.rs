@@ -1,5 +1,5 @@
 use rustc::mir;
-use rustc::ty::Ty;
+use rustc::ty::{self, Ty};
 
 use error::{EvalError, EvalResult};
 use eval_context::EvalContext;
@@ -25,11 +25,9 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
     ) -> EvalResult<'tcx, (PrimVal, bool)> {
         let left_ty    = self.operand_ty(left);
         let right_ty   = self.operand_ty(right);
-        let left_kind  = self.ty_to_primval_kind(left_ty)?;
-        let right_kind = self.ty_to_primval_kind(right_ty)?;
         let left_val   = self.eval_operand_to_primval(left)?;
         let right_val  = self.eval_operand_to_primval(right)?;
-        self.binary_op(op, left_val, left_kind, right_val, right_kind)
+        self.binary_op(op, left_val, left_ty, right_val, right_ty)
     }
 
     /// Applies the binary operation `op` to the two operands and writes a tuple of the result
@@ -140,9 +138,9 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         &mut self,
         bin_op: mir::BinOp,
         left: PrimVal,
-        left_kind: PrimValKind,
+        left_ty: Ty<'tcx>,
         right: PrimVal,
-        right_kind: PrimValKind,
+        right_ty: Ty<'tcx>,
     ) -> EvalResult<'tcx, (PrimVal, bool)> {
         use rustc::mir::BinOp::*;
         use value::PrimValKind::*;
@@ -158,6 +156,17 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             val
         }
         let (left, right) = (normalize(left), normalize(right));
+        let left_kind  = self.ty_to_primval_kind(left_ty)?;
+        let right_kind = self.ty_to_primval_kind(right_ty)?;
+
+        // Offset is handled early, before we dispatch to
+        // unrelated_ptr_ops. We have to also catch the case where
+        // both arguments *are* convertible to integers.
+        if bin_op == Offset {
+            let pointee_ty = left_ty.builtin_deref(true, ty::LvaluePreference::NoPreference).expect("Offset called on non-ptr type").ty;
+            let ptr = self.pointer_offset(left.to_ptr()?, pointee_ty, right.to_bytes()? as i64)?;
+            return Ok((PrimVal::Ptr(ptr), false));
+        }
 
         let (l, r) = match (left, right) {
             (PrimVal::Bytes(left_bytes), PrimVal::Bytes(right_bytes)) => (left_bytes, right_bytes),
