@@ -81,6 +81,13 @@ fn symbolic_read_bool() {
 }
 
 #[test]
+fn symbolic_read_signed_int() {
+    expect_single_panic(
+        "tests/symbolic/read_signed_int.rs",
+        vec![0x80]);
+}
+
+#[test]
 fn symbolic_indexing() {
     expect_single_panic(
         "tests/symbolic/indexing.rs",

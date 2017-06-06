@@ -326,7 +326,8 @@ impl ConstraintContext {
                         &ctx,
                         operator,
                         self.primval_to_ast(&ctx, rhs_operand1, kind),
-                        self.primval_to_ast(&ctx, rhs_operand2, kind)))
+                        self.primval_to_ast(&ctx, rhs_operand2, kind),
+                        lhs_kind))
             }
             Constraint::Unop { operator, kind, lhs, operand, .. } => {
                 self.primval_to_ast(&ctx, lhs, kind)._eq(
@@ -427,7 +428,8 @@ impl ConstraintContext {
         _ctx: &'a z3::Context,
         operator: mir::BinOp,
         left: z3::Ast<'a>,
-        right: z3::Ast<'a>)
+        right: z3::Ast<'a>,
+        kind: PrimValKind)
         -> z3::Ast<'a>
     {
         match operator {
@@ -443,7 +445,13 @@ impl ConstraintContext {
             mir::BinOp::BitOr => left.bvor(&right),
             mir::BinOp::Mul => left.bvmul(&right),
             mir::BinOp::Shl => left.bvshl(&right),
-            mir::BinOp::Shr => left.bvlshr(&right), // TODO: bvashr on signed types?
+            mir::BinOp::Shr => {
+                if kind.is_signed_int() {
+                    left.bvashr(&right)
+                } else {
+                    left.bvlshr(&right)
+                }
+            }
             _ => {
                 unimplemented!()
             }
