@@ -723,6 +723,10 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
             return Ok(());
         }
 
+        if let PointerOffset::Abstract(_) = dest.offset {
+            unimplemented!()
+        }
+
         if let PointerOffset::Abstract(_) = src.offset {
             return self.abstract_copy(src, dest, size, align);
         }
