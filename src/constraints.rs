@@ -411,7 +411,7 @@ impl ConstraintContext {
                 match kind {
                     PrimValKind::Bool => z3::Ast::from_bool(&ctx, v != 0),
                     PrimValKind::U8 | PrimValKind::I8 => z3::Ast::bv_from_u64(&ctx, v as u64, 8),
-                    PrimValKind::U16 => z3::Ast::bv_from_u64(&ctx, v as u64, 16),
+                    PrimValKind::U16 | PrimValKind::I16 => z3::Ast::bv_from_u64(&ctx, v as u64, 16),
                     PrimValKind::U32 => z3::Ast::bv_from_u64(&ctx, v as u64, 32),
                     PrimValKind::U64 => z3::Ast::bv_from_u64(&ctx, v as u64, 64),
 

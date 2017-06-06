@@ -84,7 +84,8 @@ fn symbolic_read_bool() {
 fn symbolic_read_signed_int() {
     expect_single_panic(
         "tests/symbolic/read_signed_int.rs",
-        vec![0x80]);
+        vec![0x80,
+             67, 254]);
 }
 
 #[test]

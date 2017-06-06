@@ -293,12 +293,13 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                             return Ok((PrimVal::Abstract(buffer), false));
                         }
                         mir::BinOp::Shr => {
-                            /// TODO what if the kind is signed?
-                            let mut buffer = [SByte::Concrete(0); 8];
-                            for idx in num_bytes .. 8 {
-                                buffer[idx - num_bytes] = abytes[idx];
+                            if !left_kind.is_signed_int() {
+                                let mut buffer = [SByte::Concrete(0); 8];
+                                for idx in num_bytes .. 8 {
+                                    buffer[idx - num_bytes] = abytes[idx];
+                                }
+                                return Ok((PrimVal::Abstract(buffer), false));
                             }
-                            return Ok((PrimVal::Abstract(buffer), false));
                         }
                         _ => unimplemented!(),
                     }
