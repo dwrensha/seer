@@ -911,7 +911,11 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
             SByte::Concrete(0) => Ok(PrimVal::from_bool(false)),
             SByte::Concrete(1) => Ok(PrimVal::from_bool(true)),
             SByte::Concrete(_) => Err(EvalError::InvalidBool),
-            SByte::Abstract(_) => unimplemented!(),
+            SByte::Abstract(AbstractVariable(v)) => {
+                let mut buffer = [SByte::Concrete(0); 8];
+                buffer[0] = SByte::Abstract(AbstractVariable(v));
+                Ok(PrimVal::Abstract(buffer))
+            }
         }
     }
 

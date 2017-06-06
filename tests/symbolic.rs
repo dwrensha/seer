@@ -74,6 +74,13 @@ fn symbolic_read_u64() {
 }
 
 #[test]
+fn symbolic_read_bool() {
+    expect_single_panic(
+        "tests/symbolic/read_bool.rs",
+        vec![0, 63]);
+}
+
+#[test]
 fn symbolic_indexing() {
     expect_single_panic(
         "tests/symbolic/indexing.rs",
