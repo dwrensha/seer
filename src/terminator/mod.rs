@@ -680,7 +680,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
 
                     let mut ordering = Equal;
                     'stepping: for idx in 0..n as usize {
-                        match (left_bytes[idx], right_bytes[idx]) {
+                        let (left, right) = match (left_bytes[idx], right_bytes[idx]) {
                             (SByte::Concrete(c0), SByte::Concrete(c1)) => {
                                 if c0 == c1 {
                                     continue 'stepping;
@@ -697,56 +697,61 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                                 is_concrete = false;
                                 let mut sbytes = [SByte::Concrete(0); 8];
                                 sbytes[0] = SByte::Abstract(a);
-                                let mut lt_constraints = equal_constraints.clone();
-                                let mut gt_constraints = equal_constraints.clone();
-
-                                equal_constraints.push(
-                                    Constraint::new_compare(
-                                        mir::BinOp::Eq,
-                                        PrimValKind::U8,
-                                        PrimVal::Abstract(sbytes),
-                                        PrimVal::from_u128(c as u128),
-                                    ));
-
-                                lt_constraints.push(
-                                    Constraint::new_compare(
-                                        mir::BinOp::Lt,
-                                        PrimValKind::U8,
-                                        PrimVal::Abstract(sbytes),
-                                        PrimVal::from_u128(c as u128),
-                                    ));
-
-                                gt_constraints.push(
-                                    Constraint::new_compare(
-                                        mir::BinOp::Lt,
-                                        PrimValKind::U8,
-                                        PrimVal::Abstract(sbytes),
-                                        PrimVal::from_u128(c as u128),
-                                    ));
-
-
-                                abstract_branches.push(
-                                    FinishStep {
-                                        constraints: lt_constraints,
-                                        variant: FinishStepVariant::Continue {
-                                            goto_block: target,
-                                            set_lvalue: Some(
-                                                (dest, PrimVal::from_i128(-1), dest_ty)),
-                                        },
-                                    });
-
-                                abstract_branches.push(
-                                    FinishStep {
-                                        constraints: gt_constraints,
-                                        variant: FinishStepVariant::Continue {
-                                            goto_block: target,
-                                            set_lvalue: Some(
-                                                (dest, PrimVal::from_u128(1), dest_ty)),
-                                        },
-                                    });
+                                (PrimVal::Abstract(sbytes), PrimVal::from_u128(c as u128))
                             }
-                            _ => unimplemented!()
-                        }
+                            (SByte::Concrete(c), SByte::Abstract(a)) => {
+                                is_concrete = false;
+                                let mut sbytes = [SByte::Concrete(0); 8];
+                                sbytes[0] = SByte::Abstract(a);
+                                (PrimVal::from_u128(c as u128), PrimVal::Abstract(sbytes))
+                            }
+                            (SByte::Abstract(aleft), SByte::Abstract(aright)) => {
+                                is_concrete = false;
+                                let mut sbytes_left = [SByte::Concrete(0); 8];
+                                sbytes_left[0] = SByte::Abstract(aleft);
+                                let mut sbytes_right = [SByte::Concrete(0); 8];
+                                sbytes_right[0] = SByte::Abstract(aright);
+                                (PrimVal::Abstract(sbytes_left), PrimVal::Abstract(sbytes_right))
+                            }
+                        };
+
+                        let mut lt_constraints = equal_constraints.clone();
+                        let mut gt_constraints = equal_constraints.clone();
+
+                        equal_constraints.push(
+                            Constraint::new_compare(
+                                mir::BinOp::Eq, PrimValKind::U8,
+                                left, right));
+
+                        lt_constraints.push(
+                            Constraint::new_compare(
+                                mir::BinOp::Lt, PrimValKind::U8,
+                                left, right));
+
+                        gt_constraints.push(
+                            Constraint::new_compare(
+                                mir::BinOp::Gt, PrimValKind::U8,
+                                left, right));
+
+                        abstract_branches.push(
+                            FinishStep {
+                                constraints: lt_constraints,
+                                variant: FinishStepVariant::Continue {
+                                    goto_block: target,
+                                    set_lvalue: Some(
+                                        (dest, PrimVal::from_i128(-1), dest_ty)),
+                                },
+                            });
+
+                        abstract_branches.push(
+                            FinishStep {
+                                constraints: gt_constraints,
+                                variant: FinishStepVariant::Continue {
+                                    goto_block: target,
+                                    set_lvalue: Some(
+                                        (dest, PrimVal::from_u128(1), dest_ty)),
+                                },
+                            });
                     }
 
                     match ordering {

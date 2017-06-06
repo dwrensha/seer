@@ -91,3 +91,11 @@ fn symbolic_indexing() {
 fn symbolic_infeasible() {
     expect_panics("tests/symbolic/infeasible.rs", vec![]);
 }
+
+#[test]
+fn symbolic_memcmp() {
+    expect_single_panic(
+        "tests/symbolic/memcmp.rs",
+        vec![10,11,12,13, 21,22,23,24, 10,11,12,13, 21,22,23,24]);
+}
+
