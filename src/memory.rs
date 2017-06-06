@@ -757,6 +757,10 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
     fn abstract_copy(&mut self, src: Pointer, dest: Pointer, size: u64, _align: u64)
                      -> EvalResult<'tcx>
     {
+        if src.alloc_id == dest.alloc_id {
+            unimplemented!()
+        }
+
         let arr = self.constraints.new_array();
         let mut constraints = Vec::new();
         {

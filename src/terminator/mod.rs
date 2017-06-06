@@ -733,25 +733,29 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                                 mir::BinOp::Gt, PrimValKind::U8,
                                 left, right));
 
-                        abstract_branches.push(
-                            FinishStep {
-                                constraints: lt_constraints,
-                                variant: FinishStepVariant::Continue {
-                                    goto_block: target,
-                                    set_lvalue: Some(
-                                        (dest, PrimVal::from_i128(-1), dest_ty)),
-                                },
-                            });
+                        if self.memory.constraints.is_feasible_with(&lt_constraints) {
+                            abstract_branches.push(
+                                FinishStep {
+                                    constraints: lt_constraints,
+                                    variant: FinishStepVariant::Continue {
+                                        goto_block: target,
+                                        set_lvalue: Some(
+                                            (dest, PrimVal::from_i128(-1), dest_ty)),
+                                    },
+                                });
+                        }
 
-                        abstract_branches.push(
-                            FinishStep {
-                                constraints: gt_constraints,
-                                variant: FinishStepVariant::Continue {
-                                    goto_block: target,
-                                    set_lvalue: Some(
-                                        (dest, PrimVal::from_u128(1), dest_ty)),
-                                },
-                            });
+                        if self.memory.constraints.is_feasible_with(&gt_constraints) {
+                            abstract_branches.push(
+                                FinishStep {
+                                    constraints: gt_constraints,
+                                    variant: FinishStepVariant::Continue {
+                                        goto_block: target,
+                                        set_lvalue: Some(
+                                            (dest, PrimVal::from_u128(1), dest_ty)),
+                                    },
+                                });
+                        }
                     }
 
                     match ordering {
@@ -765,13 +769,15 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     self.write_primval(dest, PrimVal::Bytes(result as u128), dest_ty)?;
                     self.goto_block(target);
                 } else {
-                    abstract_branches.push(FinishStep {
-                        constraints: equal_constraints,
-                        variant: FinishStepVariant::Continue {
-                            goto_block: target,
-                            set_lvalue: Some((dest, PrimVal::from_u128(0), dest_ty)),
-                        },
-                    });
+                    if self.memory.constraints.is_feasible_with(&equal_constraints) {
+                        abstract_branches.push(FinishStep {
+                            constraints: equal_constraints,
+                            variant: FinishStepVariant::Continue {
+                                goto_block: target,
+                                set_lvalue: Some((dest, PrimVal::from_u128(0), dest_ty)),
+                            },
+                        });
+                    }
                     return Ok(Some(abstract_branches));
                 }
             }
