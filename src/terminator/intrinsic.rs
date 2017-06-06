@@ -28,6 +28,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         let usize = self.tcx.types.usize;
         let f32 = self.tcx.types.f32;
         let f64 = self.tcx.types.f64;
+        let substs = instance.substs;
 
         let intrinsic_name = &self.tcx.item_name(instance.def_id()).as_str()[..];
         match intrinsic_name {
@@ -293,13 +294,9 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             }
 
             "offset" => {
-                let pointee_ty = instance.substs.type_at(0);
-                // FIXME: assuming here that type size is < i64::max_value()
-                let pointee_size = self.type_size(pointee_ty)?.expect("cannot offset a pointer to an unsized type") as i64;
                 let offset = self.value_to_primval(arg_vals[1], isize)?.to_i128()? as i64;
-
                 let ptr = arg_vals[0].read_ptr(&self.memory)?;
-                let result_ptr = ptr.signed_offset(offset * pointee_size);
+                let result_ptr = self.pointer_offset(ptr, substs.type_at(0), offset)?;
                 self.write_primval(dest, PrimVal::Ptr(result_ptr), dest_ty)?;
             }
 
@@ -355,11 +352,8 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
 
             "size_of" => {
                 let ty = instance.substs.type_at(0);
-                // FIXME: change the `box_free` lang item to take `T: ?Sized` and have it use the
-                // `size_of_val` intrinsic, then change this back to
-                // .expect("size_of intrinsic called on unsized value")
-                // see https://github.com/rust-lang/rust/pull/37708
-                let size = self.type_size(ty)?.unwrap_or(!0) as u128;
+                let size =
+                    self.type_size(ty)?.expect("size_of intrinsic called on unsized value") as u128;
                 self.write_primval(dest, PrimVal::from_u128(size), dest_ty)?;
             }
 
