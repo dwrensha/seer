@@ -467,30 +467,11 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
     ) -> EvalResult<'tcx, bool> {
         trace!("eval_fn_call_inner: {:#?}, {:#?}", instance, destination);
 
-        // Only trait methods can have a Self parameter.
-
-        let mir = match self.load_mir(instance.def) {
-            Ok(mir) => mir,
-            Err(EvalError::NoMirFor(path)) => {
-                match &path[..] {
-                    // let's just ignore all output for now
-                    "std::io::_print" => {
-                        self.goto_block(destination.unwrap().1);
-                        return Ok(true);
-                    },
-                    "std::thread::Builder::new" => return Err(EvalError::Unimplemented("miri does not support threading".to_owned())),
-                    "std::env::args" => return Err(EvalError::Unimplemented("miri does not support program arguments".to_owned())),
-                    "std::panicking::rust_panic_with_hook" |
-                    "std::rt::begin_panic_fmt" => return Err(EvalError::Panic),
-                    "std::panicking::panicking" |
-                    "std::rt::panicking" => {
-                        let (lval, block) = destination.expect("std::rt::panicking does not diverge");
-                        // we abort on panic -> `std::rt::panicking` always returns false
-                        let bool = self.tcx.types.bool;
-                        self.write_primval(lval, PrimVal::from_bool(false), bool)?;
-                        self.goto_block(block);
-                        return Ok(true);
-                    }
+        // Try to intercept some calls, regardless of whether MIR exists for them or not.
+        // TODO: make this more robust than a string match.
+        match instance.def {
+            ty::InstanceDef::Item(def_id) => {
+                match self.tcx.item_path_str(def_id).as_str() {
                     "std::io::stdin" => {
                         let (_lval, block) = destination.expect("std::io::stdin() does not diverge");
                         self.goto_block(block);
@@ -529,6 +510,36 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                         return Err(
                             EvalError::Unimplemented(
                                 "no abstract implementation for stdin.lock()".into()));
+                    }
+                    _ => (),
+                }
+            }
+            _ => (),
+        }
+
+        // Only trait methods can have a Self parameter.
+
+        let mir = match self.load_mir(instance.def) {
+            Ok(mir) => mir,
+            Err(EvalError::NoMirFor(path)) => {
+                match &path[..] {
+                    // let's just ignore all output for now
+                    "std::io::_print" => {
+                        self.goto_block(destination.unwrap().1);
+                        return Ok(true);
+                    },
+                    "std::thread::Builder::new" => return Err(EvalError::Unimplemented("miri does not support threading".to_owned())),
+                    "std::env::args" => return Err(EvalError::Unimplemented("miri does not support program arguments".to_owned())),
+                    "std::panicking::rust_panic_with_hook" |
+                    "std::rt::begin_panic_fmt" => return Err(EvalError::Panic),
+                    "std::panicking::panicking" |
+                    "std::rt::panicking" => {
+                        let (lval, block) = destination.expect("std::rt::panicking does not diverge");
+                        // we abort on panic -> `std::rt::panicking` always returns false
+                        let bool = self.tcx.types.bool;
+                        self.write_primval(lval, PrimVal::from_bool(false), bool)?;
+                        self.goto_block(block);
+                        return Ok(true);
                     }
                     _ => {},
                 }
