@@ -1,0 +1,7 @@
+[package]
+name = "test-fuzzy-pickles"
+version = "0.1.0"
+authors = ["David Renshaw <david@sandstorm.io>"]
+
+[dependencies]
+fuzzy-pickles = { git = "https://github.com/shepmaster/fuzzy-pickles" }
