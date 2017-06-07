@@ -132,7 +132,7 @@ impl ConstraintContext {
             (_, U16) | (_, I16) => (2, VarType::BitVec8, kind),
             (_, U32) | (_, I32) => (4, VarType::BitVec8, kind),
             (_, U64) | (_, I64) => (8, VarType::BitVec8, kind),
-            _ => {println!("{:?}, {:?}", bin_op, kind); unimplemented!()},
+            _ => unimplemented!(),
         };
 
         for idx in 0..num_bytes {
@@ -472,8 +472,14 @@ impl ConstraintContext {
             (mir::BinOp::Shr, kind) if kind.is_signed_int() => left.bvashr(&right),
             (mir::BinOp::Shr, _) => left.bvlshr(&right),
 
+            (mir::BinOp::Div, kind) if kind.is_signed_int() => left.bvsdiv(&right),
+            (mir::BinOp::Div, _) => left.bvudiv(&right),
+
+            (mir::BinOp::Rem, kind) if kind.is_signed_int() => left.bvsrem(&right),
+            (mir::BinOp::Rem, _) => left.bvurem(&right),
 
             _ => {
+                println!("{:?}", operator);
                 unimplemented!()
             }
         }

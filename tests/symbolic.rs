@@ -122,3 +122,10 @@ fn symbolic_bitwise_bool() {
         "tests/symbolic/bitwise_bool.rs",
         vec![1,1, 0,0, 0,1]);
 }
+
+#[test]
+fn symbolic_div() {
+    expect_single_panic(
+        "tests/symbolic/div.rs",
+        vec![57, 199]);
+}
