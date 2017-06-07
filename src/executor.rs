@@ -115,7 +115,7 @@ impl <'a, 'tcx: 'a> Executor<'a, 'tcx> {
 
     pub fn push_eval_context(&mut self, ecx: EvalContext<'a, 'tcx>) {
         // Push onto the front so that we go depth-first.
-        // Pushing onto the back consume more memory and be less
+        // Pushing onto the back consumes more memory and may be less
         // cache-friendly.
         self.queue.push_front(ecx);
     }

@@ -2,7 +2,7 @@ extern crate httparse;
 
 fn main() {
     use std::io::Read;
-    let mut data: Vec<u8> = vec![0; 20];
+    let mut data: Vec<u8> = vec![0; 16];
     let mut stdin = ::std::io::stdin();
     stdin.read(&mut data[..]).unwrap();
 
@@ -16,22 +16,10 @@ fn main() {
             Ok(n) => {
                 if n.is_complete() {
 
-                } else {
-
                 }
             }
             Err(_) => {}
         }
-
-        match req.method {
-            Some(s) => {
-                if s == "GET" {
-//                    panic!()
-                }
-            }
-            None => (),
-        }
-
 
         if !req.headers.is_empty() && req.headers[0].name == "Host" {
             panic!()
