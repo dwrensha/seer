@@ -350,12 +350,18 @@ impl ConstraintContext {
                             &self.primval_to_ast(&ctx, rhs, kind)).not()
                     }
                     mir::BinOp::Gt => {
-                        self.primval_to_ast(&ctx, lhs, kind).bvugt( // TODO what if signed?
+                        if kind.is_signed_int() {
+                            unimplemented!()
+                        }
+                        self.primval_to_ast(&ctx, lhs, kind).bvugt(
                             &self.primval_to_ast(&ctx, rhs, kind))
                     }
 
                     mir::BinOp::Lt => {
-                        self.primval_to_ast(ctx, lhs, kind).bvult( // TODO what if signed?
+                        if kind.is_signed_int() {
+                            unimplemented!()
+                        }
+                        self.primval_to_ast(ctx, lhs, kind).bvult(
                             &self.primval_to_ast(&ctx, rhs, kind))
                     }
 
