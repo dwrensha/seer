@@ -1,0 +1,7 @@
+[package]
+name = "test-httparse"
+version = "0.1.0"
+authors = ["David Renshaw <david@sandstorm.io>"]
+
+[dependencies]
+httparse = "*"
