@@ -109,3 +109,10 @@ fn symbolic_memcmp() {
         vec![10,11,12,13, 21,22,23,24, 10,11,12,13, 21,22,23,24]);
 }
 
+#[test]
+fn symbolic_str_starts_with() {
+    expect_single_panic(
+        "tests/symbolic/str_starts_with.rs",
+        "hello world".as_bytes().into());
+}
+

@@ -327,7 +327,7 @@ impl ConstraintContext {
                         operator,
                         self.primval_to_ast(&ctx, rhs_operand1, kind),
                         self.primval_to_ast(&ctx, rhs_operand2, kind),
-                        lhs_kind))
+                        kind))
             }
             Constraint::Unop { operator, kind, lhs, operand, .. } => {
                 self.primval_to_ast(&ctx, lhs, kind)._eq(
