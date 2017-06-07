@@ -1,0 +1,11 @@
+[package]
+name = "test-capnp"
+version = "0.1.0"
+authors = ["David Renshaw <david@sandstorm.io>"]
+
+[dependencies]
+capnp = "0.8"
+
+[[bin]]
+name = "test_all_types"
+path = "src/test_all_types.rs"
