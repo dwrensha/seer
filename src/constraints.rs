@@ -432,26 +432,25 @@ impl ConstraintContext {
         kind: PrimValKind)
         -> z3::Ast<'a>
     {
-        match operator {
-            mir::BinOp::Eq => left._eq(&right),
-            mir::BinOp::Ne => left._eq(&right).not(),
-            mir::BinOp::Lt => left.bvult(&right),
-            mir::BinOp::Le => left.bvule(&right),
-            mir::BinOp::Gt => left.bvugt(&right),
-            mir::BinOp::Ge => left.bvuge(&right),
-            mir::BinOp::Add => left.bvadd(&right),
-            mir::BinOp::BitXor => left.bvxor(&right),
-            mir::BinOp::BitAnd => left.bvand(&right),
-            mir::BinOp::BitOr => left.bvor(&right),
-            mir::BinOp::Mul => left.bvmul(&right),
-            mir::BinOp::Shl => left.bvshl(&right),
-            mir::BinOp::Shr => {
-                if kind.is_signed_int() {
-                    left.bvashr(&right)
-                } else {
-                    left.bvlshr(&right)
-                }
-            }
+        match (operator, kind.is_signed_int()) {
+            (mir::BinOp::Eq, _) => left._eq(&right),
+            (mir::BinOp::Ne, _) => left._eq(&right).not(),
+            (mir::BinOp::Lt, false) => left.bvult(&right),
+            (mir::BinOp::Lt, true) => left.bvslt(&right),
+            (mir::BinOp::Le, false) => left.bvule(&right),
+            (mir::BinOp::Le, true) => left.bvsle(&right),
+            (mir::BinOp::Gt, false) => left.bvugt(&right),
+            (mir::BinOp::Gt, true) => left.bvsgt(&right),
+            (mir::BinOp::Ge, false) => left.bvuge(&right),
+            (mir::BinOp::Ge, true) => left.bvsge(&right),
+            (mir::BinOp::Add, _) => left.bvadd(&right),
+            (mir::BinOp::BitXor, _) => left.bvxor(&right),
+            (mir::BinOp::BitAnd, _) => left.bvand(&right),
+            (mir::BinOp::BitOr, _) => left.bvor(&right),
+            (mir::BinOp::Mul, _) => left.bvmul(&right),
+            (mir::BinOp::Shl, _) => left.bvshl(&right),
+            (mir::BinOp::Shr, false) => left.bvlshr(&right),
+            (mir::BinOp::Shr, true) => left.bvashr(&right),
             _ => {
                 unimplemented!()
             }
