@@ -127,11 +127,12 @@ impl ConstraintContext {
             (mir::BinOp::Le, _) |
             (mir::BinOp::Gt, _) |
             (mir::BinOp::Ge, _) => (1, VarType::Bool, PrimValKind::Bool),
+            (mir::BinOp::BitAnd, Bool) => (1, VarType::Bool, PrimValKind::Bool),
             (_, U8) | (_, I8) => (1, VarType::BitVec8, kind),
             (_, U16) | (_, I16) => (2, VarType::BitVec8, kind),
             (_, U32) | (_, I32) => (4, VarType::BitVec8, kind),
             (_, U64) | (_, I64) => (8, VarType::BitVec8, kind),
-            _ => unimplemented!(),
+            _ => {println!("{:?}, {:?}", bin_op, kind); unimplemented!()},
         };
 
         for idx in 0..num_bytes {
