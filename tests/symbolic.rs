@@ -116,3 +116,9 @@ fn symbolic_str_starts_with() {
         "hello world".as_bytes().into());
 }
 
+#[test]
+fn symbolic_bitwise_bool() {
+    expect_single_panic(
+        "tests/symbolic/bitwise_bool.rs",
+        vec![1,1, 0,0, 0,1]);
+}

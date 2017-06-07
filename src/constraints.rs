@@ -127,7 +127,7 @@ impl ConstraintContext {
             (mir::BinOp::Le, _) |
             (mir::BinOp::Gt, _) |
             (mir::BinOp::Ge, _) => (1, VarType::Bool, PrimValKind::Bool),
-            (mir::BinOp::BitAnd, Bool) => (1, VarType::Bool, PrimValKind::Bool),
+            (_, Bool) => (1, VarType::Bool, kind),
             (_, U8) | (_, I8) => (1, VarType::BitVec8, kind),
             (_, U16) | (_, I16) => (2, VarType::BitVec8, kind),
             (_, U32) | (_, I32) => (4, VarType::BitVec8, kind),
@@ -439,25 +439,40 @@ impl ConstraintContext {
         kind: PrimValKind)
         -> z3::Ast<'a>
     {
-        match (operator, kind.is_signed_int()) {
+        match (operator, kind) {
             (mir::BinOp::Eq, _) => left._eq(&right),
             (mir::BinOp::Ne, _) => left._eq(&right).not(),
-            (mir::BinOp::Lt, false) => left.bvult(&right),
-            (mir::BinOp::Lt, true) => left.bvslt(&right),
-            (mir::BinOp::Le, false) => left.bvule(&right),
-            (mir::BinOp::Le, true) => left.bvsle(&right),
-            (mir::BinOp::Gt, false) => left.bvugt(&right),
-            (mir::BinOp::Gt, true) => left.bvsgt(&right),
-            (mir::BinOp::Ge, false) => left.bvuge(&right),
-            (mir::BinOp::Ge, true) => left.bvsge(&right),
+
+            (mir::BinOp::Lt, kind) if kind.is_signed_int() => left.bvslt(&right),
+            (mir::BinOp::Lt, _) => left.bvult(&right),
+
+            (mir::BinOp::Le, kind) if kind.is_signed_int() => left.bvsle(&right),
+            (mir::BinOp::Le, _) => left.bvule(&right),
+
+            (mir::BinOp::Gt, kind) if kind.is_signed_int() => left.bvsgt(&right),
+            (mir::BinOp::Gt, _) => left.bvugt(&right),
+
+            (mir::BinOp::Ge, kind) if kind.is_signed_int() => left.bvsge(&right),
+            (mir::BinOp::Ge, _) => left.bvuge(&right),
+
             (mir::BinOp::Add, _) => left.bvadd(&right),
+
+            (mir::BinOp::BitXor, PrimValKind::Bool) => left.xor(&right),
             (mir::BinOp::BitXor, _) => left.bvxor(&right),
+
+            (mir::BinOp::BitAnd, PrimValKind::Bool) => left.and(&[&right]),
             (mir::BinOp::BitAnd, _) => left.bvand(&right),
+
+            (mir::BinOp::BitOr, PrimValKind::Bool) => left.or(&[&right]),
             (mir::BinOp::BitOr, _) => left.bvor(&right),
+
             (mir::BinOp::Mul, _) => left.bvmul(&right),
             (mir::BinOp::Shl, _) => left.bvshl(&right),
-            (mir::BinOp::Shr, false) => left.bvlshr(&right),
-            (mir::BinOp::Shr, true) => left.bvashr(&right),
+
+            (mir::BinOp::Shr, kind) if kind.is_signed_int() => left.bvashr(&right),
+            (mir::BinOp::Shr, _) => left.bvlshr(&right),
+
+
             _ => {
                 unimplemented!()
             }
