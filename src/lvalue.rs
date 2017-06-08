@@ -5,7 +5,7 @@ use rustc_data_structures::indexed_vec::Idx;
 
 use error::EvalResult;
 use eval_context::{EvalContext};
-use memory::Pointer;
+use memory::{Pointer, PointerOffset};
 use value::{PrimVal, PrimValKind, Value};
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -255,7 +255,21 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             _ => offset.bytes(),
         };
 
-        let ptr = base_ptr.offset(offset);
+        let ptr = match base_ptr.offset {
+            PointerOffset::Concrete(_) => base_ptr.offset(offset),
+            PointerOffset::Abstract(sbytes) => {
+                let new_offset = self.memory.constraints.add_binop_constraint(
+                    mir::BinOp::Add,
+                    PrimVal::Bytes(offset as u128),
+                    PrimVal::Abstract(sbytes),
+                    PrimValKind::U64);
+                if let PrimVal::Abstract(sb) = new_offset {
+                    Pointer::new_abstract(base_ptr.alloc_id, sb)
+                } else {
+                    unreachable!()
+                }
+            }
+        };
 
         let field_ty = self.monomorphize(field_ty, self.substs());
 
