@@ -456,6 +456,7 @@ impl ConstraintContext {
             (mir::BinOp::Ge, _) => left.bvuge(&right),
 
             (mir::BinOp::Add, _) => left.bvadd(&right),
+            (mir::BinOp::Sub, _) => left.bvsub(&right),
 
             (mir::BinOp::BitXor, PrimValKind::Bool) => left.xor(&right),
             (mir::BinOp::BitXor, _) => left.bvxor(&right),
