@@ -13,7 +13,7 @@ fn traverse(v: test_all_types::Reader) -> ::capnp::Result<()> {
 
     let structs = try!(v.get_struct_list());
     for s in structs.iter() {
-        try!(s.get_text_field());
+        try!(s.get_struct_field());
     }
 
     try!(v.get_bool_list());
@@ -30,7 +30,7 @@ fn try_go(mut data: &[u8]) -> ::capnp::Result<()> {
     let root: test_all_types::Reader = try!(message_reader.get_root());
     try!(root.total_size());
     try!(traverse(root));
-
+/*
     let mut message = message::Builder::new_default();
     try!(message.set_root(root));
     {
@@ -42,15 +42,26 @@ fn try_go(mut data: &[u8]) -> ::capnp::Result<()> {
     // init_root() will zero the previous value
     let mut new_root = message.init_root::<test_all_types::Builder>();
 
-    try!(new_root.set_struct_field(root));
+    try!(new_root.set_struct_field(root)); */
     Ok(())
 }
 
 pub fn main() {
     use std::io::Read;
-    let mut data: Vec<u8> = vec![0; 32];
+    let mut data: Vec<u8> = vec![0; 64];
     let mut stdin = ::std::io::stdin();
     stdin.read(&mut data[..]).unwrap();
+
+    // Set the size of the message to a concrete value because seer does
+    // not yet support allocation of abstract size.
+    data[0] = 0;
+    data[1] = 0;
+    data[2] = 0;
+    data[3] = 0;
+    data[4] = 7;
+    data[5] = 0;
+    data[6] = 0;
+    data[7] = 0;
 
     let _ = try_go(&data[..]);
 }
