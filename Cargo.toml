@@ -4,7 +4,7 @@ description = "symbolic execution engine for rust"
 license = "Apache-2.0"
 repository = "https://github.com/dwrensha/seer"
 name = "seer"
-version = "0.0.0"
+version = "0.0.1"
 
 [[bin]]
 doc = false
@@ -14,9 +14,6 @@ test = false
 [[bin]]
 doc = false
 name = "run_symbolic"
-test = false
-
-[lib]
 test = false
 
 [dependencies]
@@ -29,7 +26,7 @@ env_logger = "0.3.3"
 log = "0.3.6"
 log_settings = "0.1.1"
 cargo_metadata = "0.1"
-z3 = {git = "https://github.com/dwrensha/z3-rs", branch = "extract" }
+seer-z3 = "0.1.0"
 
 [dev-dependencies]
 compiletest_rs = "0.2.6"

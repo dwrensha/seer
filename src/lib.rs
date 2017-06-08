@@ -20,7 +20,7 @@ extern crate rustc_errors;
 extern crate syntax;
 
 // From crates.io.
-extern crate z3;
+extern crate seer_z3 as z3;
 
 pub mod byteorder;
 mod cast;
