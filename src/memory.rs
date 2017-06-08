@@ -865,6 +865,12 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
                  self.get_mut(dest.alloc_id)?.relocations.insert(dest_offset, ptr.alloc_id);
                  Ok(())
             }
+            (PointerOffset::Abstract(sbytes),
+             PointerOffset::Concrete(dest_offset)) => {
+                self.write_primval(dest, PrimVal::Abstract(sbytes), 8)?; // FIXME usize
+                self.get_mut(dest.alloc_id)?.relocations.insert(dest_offset, ptr.alloc_id);
+                Ok(())
+            }
             _ => unimplemented!(),
         }
     }
