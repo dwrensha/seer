@@ -300,7 +300,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             }
 
             if right_kind.num_bytes() == left_kind.num_bytes() {
-                // do nothing
+                right_kind = left_kind;
             } else if right_kind.num_bytes() < left_kind.num_bytes() {
                 right_kind = left_kind;
             } else {

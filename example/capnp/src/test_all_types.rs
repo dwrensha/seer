@@ -7,7 +7,6 @@ pub mod test_capnp;
 
 fn traverse(v: test_all_types::Reader) -> ::capnp::Result<()> {
     v.get_int64_field();
-    try!(v.get_text_field());
     try!(v.get_data_field());
     try!(v.get_struct_field());
 
@@ -30,6 +29,7 @@ fn try_go(mut data: &[u8]) -> ::capnp::Result<()> {
     let root: test_all_types::Reader = try!(message_reader.get_root());
     try!(root.total_size());
     try!(traverse(root));
+
 /*
     let mut message = message::Builder::new_default();
     try!(message.set_root(root));
@@ -48,9 +48,7 @@ fn try_go(mut data: &[u8]) -> ::capnp::Result<()> {
 
 pub fn main() {
     use std::io::Read;
-    let mut data: Vec<u8> = vec![0; 64];
-    let mut stdin = ::std::io::stdin();
-    stdin.read(&mut data[..]).unwrap();
+    let mut data: Vec<u8> = vec![0; 56];
 
     // Set the size of the message to a concrete value because seer does
     // not yet support allocation of abstract size.
@@ -58,10 +56,13 @@ pub fn main() {
     data[1] = 0;
     data[2] = 0;
     data[3] = 0;
-    data[4] = 7;
+    data[4] = ((data.len() / 8) - 1) as u8;
     data[5] = 0;
     data[6] = 0;
     data[7] = 0;
+
+    let mut stdin = ::std::io::stdin();
+    stdin.read(&mut data[8..]).unwrap();
 
     let _ = try_go(&data[..]);
 }

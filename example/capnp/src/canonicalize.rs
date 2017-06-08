@@ -27,6 +27,18 @@ fn try_go(mut data: &[u8]) -> ::capnp::Result<()> {
 pub fn main() {
     use std::io::Read;
     let mut data: Vec<u8> = vec![0; 32];
+
+    // Set the size of the message to a concrete value because seer does
+    // not yet support allocation of abstract size.
+    data[0] = 0;
+    data[1] = 0;
+    data[2] = 0;
+    data[3] = 0;
+    data[4] = ((data.len() / 8) - 1) as u8;
+    data[5] = 0;
+    data[6] = 0;
+    data[7] = 0;
+
     let mut stdin = ::std::io::stdin();
     stdin.read(&mut data[..]).unwrap();
 
