@@ -1,9 +1,8 @@
 #[derive(Copy, Clone)]
 struct Foo {
-    _a: u32,
-    _b: bool,
+    a: u32,
+    b: u32,
     c: u64,
-    _d: u8,
 }
 
 fn main() {
@@ -12,7 +11,7 @@ fn main() {
     let mut stdin = ::std::io::stdin();
     stdin.read(&mut data[..]).unwrap();
 
-    let mut v: Vec<Foo> = vec![Foo {_a: 0, _b: false, c: 0, _d: 0,}; 20];
+    let mut v: Vec<Foo> = vec![Foo {a: 0, b: 0, c: 0}; 8];
 
     let d0 = data[0] as usize; // 5
     let d1 = data[1] as usize; // 5

@@ -1126,6 +1126,12 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
     }
 
     fn clear_relocations(&mut self, ptr: Pointer, size: u64) -> EvalResult<'tcx> {
+        // HACK: return early if we know there is nothing to clear. This helps
+        // especially in the case where `ptr` is abstract.
+        if self.get(ptr.alloc_id)?.relocations.is_empty() {
+            return Ok(())
+        }
+
         // Find all relocations overlapping the given range.
         let keys: Vec<_> = self.relocations(ptr, size)?.map(|(&k, _)| k).collect();
         if keys.is_empty() { return Ok(()); }
@@ -1230,7 +1236,14 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
                 alloc.undef_mask.set_range(offset, offset + size, new_state);
                 Ok(())
             }
-            _ => unimplemented!(),
+            PointerOffset::Abstract(_) => {
+                if alloc.undef_mask.is_range_defined(0, alloc.bytes.len() as u64) && new_state {
+                    // nothing to do
+                    Ok(())
+                } else {
+                    unimplemented!()
+                }
+            }
         }
     }
 }
