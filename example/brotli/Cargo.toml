@@ -1,0 +1,7 @@
+[package]
+name = "test-brotli"
+version = "0.1.0"
+authors = ["David Renshaw <david@sandstorm.io>"]
+
+[dependencies]
+brotli = { git = "https://github.com/dropbox/rust-brotli" }
