@@ -534,7 +534,8 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                         self.goto_block(block);
                         return Ok(true);
                     }
-                    "<std::io::Stdin as std::io::Read>::read" => {
+                    "<std::io::Stdin as std::io::Read>::read" |
+                    "<std::io::Stdin as std::io::Read>::read_exact" => {
                         let (lval, block) = destination.expect("Stdin::read() does not diverge");
                         let args_res: EvalResult<Vec<Value>> = arg_operands.iter()
                             .map(|arg| self.eval_operand(arg))

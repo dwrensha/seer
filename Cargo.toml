@@ -1,7 +1,8 @@
 [package]
-authors = ["David Renshaw <david@gammaproof.com>"]
+authors = ["David Renshaw <david@sandstorm.io>"]
 description = "symbolic execution engine for rust"
 license = "Apache-2.0"
+repository = "https://github.com/dwrensha/seer"
 name = "seer"
 version = "0.0.0"
 
