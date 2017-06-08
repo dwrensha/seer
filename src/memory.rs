@@ -872,14 +872,18 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
         match (ptr.offset, dest.offset) {
             (PointerOffset::Concrete(ptr_offset),
              PointerOffset::Concrete(dest_offset)) => {
-                 self.write_usize(dest, ptr_offset as u64)?;
-                 self.get_mut(dest.alloc_id)?.relocations.insert(dest_offset, ptr.alloc_id);
-                 Ok(())
+                self.write_usize(dest, ptr_offset as u64)?;
+                if ptr.alloc_id != NEVER_ALLOC_ID {
+                    self.get_mut(dest.alloc_id)?.relocations.insert(dest_offset, ptr.alloc_id);
+                }
+                Ok(())
             }
             (PointerOffset::Abstract(sbytes),
              PointerOffset::Concrete(dest_offset)) => {
                 self.write_primval(dest, PrimVal::Abstract(sbytes), 8)?; // FIXME usize
-                self.get_mut(dest.alloc_id)?.relocations.insert(dest_offset, ptr.alloc_id);
+                if ptr.alloc_id != NEVER_ALLOC_ID {
+                    self.get_mut(dest.alloc_id)?.relocations.insert(dest_offset, ptr.alloc_id);
+                }
                 Ok(())
             }
             _ => unimplemented!(),
