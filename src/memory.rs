@@ -839,21 +839,32 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
     pub fn read_ptr(&self, ptr: Pointer) -> EvalResult<'tcx, Pointer> {
         let size = self.pointer_size();
         self.check_defined(ptr, size)?;
-        let endianess = self.endianess();
-        let bytes = self.get_bytes_unchecked(ptr, size, size)?;
-        let offset = self.read_target_uint(endianess, bytes).unwrap().to_u128()?;
-        assert_eq!(offset as u64 as u128, offset);
-        let offset = offset as u64;
-        let alloc = self.get(ptr.alloc_id)?;
 
         let ptr_offset = match ptr.offset {
             PointerOffset::Concrete(offset) => offset,
             _ => unimplemented!(),
         };
+        let alloc = self.get(ptr.alloc_id)?;
 
-        match alloc.relocations.get(&ptr_offset) {
-            Some(&alloc_id) => Ok(Pointer::new(alloc_id, offset)),
-            None => Ok(Pointer::from_int(offset)),
+        let endianess = self.endianess();
+        let bytes = self.get_bytes_unchecked(ptr, size, size)?;
+        let offset_primval = self.read_target_uint(endianess, bytes).unwrap();
+        if offset_primval.is_concrete() {
+            let offset = offset_primval.to_u128()?;
+            assert_eq!(offset as u64 as u128, offset);
+            let offset = offset as u64;
+
+            match alloc.relocations.get(&ptr_offset) {
+                Some(&alloc_id) => Ok(Pointer::new(alloc_id, offset)),
+                None => Ok(Pointer::from_int(offset)),
+            }
+        } else if let PrimVal::Abstract(sbytes) = offset_primval {
+            match alloc.relocations.get(&ptr_offset) {
+                Some(&alloc_id) => Ok(Pointer::new_abstract(alloc_id, sbytes)),
+                None => Ok(Pointer::new_abstract(NEVER_ALLOC_ID, sbytes)),
+            }
+        } else {
+            unimplemented!()
         }
     }
 

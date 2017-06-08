@@ -16,9 +16,9 @@ fn main() {
 
     p = unsafe { p.offset(d0 as isize) };
 
-    let _ps: &[*const u32] = &[::std::ptr::null(), p];
+    let ps: &[*const u32] = &[::std::ptr::null(), p];
 
-    if unsafe { *p } == 333 {
+    if unsafe { *ps[1] } == 333 {
         panic!()
     }
 }
