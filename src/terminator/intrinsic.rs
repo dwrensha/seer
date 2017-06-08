@@ -7,6 +7,7 @@ use rustc::ty::{self, Ty};
 use error::{EvalError, EvalResult};
 use eval_context::EvalContext;
 use lvalue::{Lvalue, LvalueExtra};
+use memory::{Pointer, PointerOffset};
 use value::{PrimVal, PrimValKind, Value};
 
 impl<'a, 'tcx> EvalContext<'a, 'tcx> {
@@ -294,10 +295,42 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             }
 
             "offset" => {
-                let offset = self.value_to_primval(arg_vals[1], isize)?.to_i128()? as i64;
                 let ptr = arg_vals[0].read_ptr(&self.memory)?;
-                let result_ptr = self.pointer_offset(ptr, substs.type_at(0), offset)?;
-                self.write_primval(dest, PrimVal::Ptr(result_ptr), dest_ty)?;
+                let offset_primval = self.value_to_primval(arg_vals[1], isize)?;
+                if offset_primval.is_concrete() {
+                    let offset = offset_primval.to_i128()? as i64;
+                    let result_ptr = self.pointer_offset(ptr, substs.type_at(0), offset)?;
+                    self.write_primval(dest, PrimVal::Ptr(result_ptr), dest_ty)?;
+                } else {
+                    match ptr.offset {
+                        PointerOffset::Concrete(ptr_offset) => {
+                            // need to account for the size of the type.
+                            let size =
+                                self.type_size(substs.type_at(0))?.expect(
+                                    "offset type must be sized");
+                            let byte_offset = self.memory.constraints.add_binop_constraint(
+                                mir::BinOp::Mul,
+                                PrimVal::Bytes(size as u128),
+                                offset_primval,
+                                PrimValKind::U64);
+                            let new_offset = self.memory.constraints.add_binop_constraint(
+                                mir::BinOp::Add,
+                                PrimVal::Bytes(ptr_offset as u128),
+                                byte_offset,
+                                PrimValKind::U64);
+                            if let PrimVal::Abstract(sbytes) = new_offset {
+                                let new_ptr = Pointer::new_abstract(ptr.alloc_id, sbytes);
+                                self.write_primval(dest, PrimVal::Ptr(new_ptr), dest_ty)?;
+
+                            } else {
+                                unreachable!()
+                            }
+                        }
+                        PointerOffset::Abstract(_) => {
+                            unimplemented!()
+                        }
+                    }
+                }
             }
 
             "overflowing_sub" => {
