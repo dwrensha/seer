@@ -19,6 +19,8 @@ fn main() {
     let ps: &[*const u32] = &[::std::ptr::null(), p];
 
     if unsafe { *ps[1] } == 333 {
-        panic!()
+        if p > v.as_ptr() && p >= v.as_ptr() && v.as_ptr() < p && v.as_ptr() <= p {
+            panic!()
+        }
     }
 }

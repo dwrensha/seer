@@ -325,7 +325,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
     }
 
     fn ptr_ops(
-        &self,
+        &mut self,
         bin_op: mir::BinOp,
         left: Pointer,
         left_kind: PrimValKind,
@@ -341,7 +341,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
 
         let (left_offset, right_offset) = match (left.offset, right.offset) {
             (PointerOffset::Concrete(l), PointerOffset::Concrete(r)) => (l, r),
-            _ => unimplemented!(),
+            _ => return self.abstract_ptr_ops(bin_op, left, left_kind, right, right_kind),
         };
 
         let val = match bin_op {
@@ -374,6 +374,39 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         Ok((val, false))
     }
 
+    fn abstract_ptr_ops(
+        &mut self,
+        bin_op: mir::BinOp,
+        left: Pointer,
+        _left_kind: PrimValKind,
+        right: Pointer,
+        _right_kind: PrimValKind,
+    ) -> EvalResult<'tcx, (PrimVal, bool)> {
+        use rustc::mir::BinOp::*;
+        use value::PrimValKind::*;
+
+        let left_offset_primval = match left.offset {
+            PointerOffset::Concrete(n) => PrimVal::Bytes(n as u128),
+            PointerOffset::Abstract(sbytes) => PrimVal::Abstract(sbytes),
+        };
+
+        let right_offset_primval = match right.offset {
+            PointerOffset::Concrete(n) => PrimVal::Bytes(n as u128),
+            PointerOffset::Abstract(sbytes) => PrimVal::Abstract(sbytes),
+        };
+
+        if left.alloc_id != right.alloc_id {
+            if let Eq = bin_op {
+                unimplemented!()
+            } else {
+                unimplemented!()
+            }
+        } else {
+            let result = self.memory.constraints.add_binop_constraint(
+                bin_op, left_offset_primval, right_offset_primval, U64);
+            Ok((result, false))
+        }
+    }
 
     fn ptr_and_bytes_ops(&self, bin_op: mir::BinOp, left: Pointer, right: u128) -> EvalResult<'tcx, PrimVal> {
         use rustc::mir::BinOp::*;
