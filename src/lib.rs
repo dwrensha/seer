@@ -3,6 +3,8 @@
     rustc_private,
 )]
 
+extern crate core;
+
 // From rustc.
 #[macro_use]
 extern crate log;
@@ -18,9 +20,9 @@ extern crate rustc_errors;
 extern crate syntax;
 
 // From crates.io.
-extern crate byteorder;
 extern crate z3;
 
+pub mod byteorder;
 mod cast;
 mod constraints;
 mod error;
