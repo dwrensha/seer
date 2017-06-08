@@ -302,33 +302,30 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     let result_ptr = self.pointer_offset(ptr, substs.type_at(0), offset)?;
                     self.write_primval(dest, PrimVal::Ptr(result_ptr), dest_ty)?;
                 } else {
-                    match ptr.offset {
-                        PointerOffset::Concrete(ptr_offset) => {
-                            // need to account for the size of the type.
-                            let size =
-                                self.type_size(substs.type_at(0))?.expect(
-                                    "offset type must be sized");
-                            let byte_offset = self.memory.constraints.add_binop_constraint(
-                                mir::BinOp::Mul,
-                                PrimVal::Bytes(size as u128),
-                                offset_primval,
-                                PrimValKind::U64);
-                            let new_offset = self.memory.constraints.add_binop_constraint(
-                                mir::BinOp::Add,
-                                PrimVal::Bytes(ptr_offset as u128),
-                                byte_offset,
-                                PrimValKind::U64);
-                            if let PrimVal::Abstract(sbytes) = new_offset {
-                                let new_ptr = Pointer::new_abstract(ptr.alloc_id, sbytes);
-                                self.write_primval(dest, PrimVal::Ptr(new_ptr), dest_ty)?;
+                    let ptr_offset_primval = match ptr.offset {
+                        PointerOffset::Concrete(n) => PrimVal::Bytes(n as u128),
+                        PointerOffset::Abstract(sbytes) => PrimVal::Abstract(sbytes),
+                    };
+                    // need to account for the size of the type.
+                    let size =
+                        self.type_size(substs.type_at(0))?.expect(
+                            "offset type must be sized");
 
-                            } else {
-                                unreachable!()
-                            }
-                        }
-                        PointerOffset::Abstract(_) => {
-                            unimplemented!()
-                        }
+                    let byte_offset = self.memory.constraints.add_binop_constraint(
+                        mir::BinOp::Mul,
+                        PrimVal::Bytes(size as u128),
+                        offset_primval,
+                        PrimValKind::U64);
+                    let new_offset = self.memory.constraints.add_binop_constraint(
+                        mir::BinOp::Add,
+                        ptr_offset_primval,
+                        byte_offset,
+                        PrimValKind::U64);
+                    if let PrimVal::Abstract(sbytes) = new_offset {
+                        let new_ptr = Pointer::new_abstract(ptr.alloc_id, sbytes);
+                        self.write_primval(dest, PrimVal::Ptr(new_ptr), dest_ty)?;
+                    } else {
+                        unreachable!()
                     }
                 }
             }

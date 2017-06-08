@@ -134,5 +134,5 @@ fn symbolic_div() {
 fn symbolic_ptr_offset() {
     expect_single_panic(
         "tests/symbolic/ptr_offset.rs",
-        vec![2]);
+        vec![2, 4]);
 }
