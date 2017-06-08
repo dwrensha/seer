@@ -297,7 +297,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             "offset" => {
                 let ptr = arg_vals[0].read_ptr(&self.memory)?;
                 let offset_primval = self.value_to_primval(arg_vals[1], isize)?;
-                if offset_primval.is_concrete() {
+                if offset_primval.is_concrete() && ptr.is_concrete() {
                     let offset = offset_primval.to_i128()? as i64;
                     let result_ptr = self.pointer_offset(ptr, substs.type_at(0), offset)?;
                     self.write_primval(dest, PrimVal::Ptr(result_ptr), dest_ty)?;
