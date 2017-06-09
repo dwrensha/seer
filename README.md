@@ -75,8 +75,8 @@ and therefore has lots of `unimplemented!()` holes in it.
 In particular, it does not yet handle:
 
  - allocations with size depending on symbolic input
- - pointer-to-pointer with abstract offset
- - overflow checking on abstract arithmetic
+ - pointer-to-pointer with symbolic offset
+ - overflow checking on symbolic arithmetic
  - ... lots of other things that you will quickly discover if you try to use it!
 
 # long-term vision
