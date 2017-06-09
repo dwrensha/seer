@@ -7,6 +7,7 @@ pub mod test_capnp;
 
 fn traverse(v: test_all_types::Reader) -> ::capnp::Result<()> {
     v.get_int64_field();
+    try!(v.get_enum_field());
     try!(v.get_data_field());
     try!(v.get_struct_field());
 
@@ -15,7 +16,24 @@ fn traverse(v: test_all_types::Reader) -> ::capnp::Result<()> {
         try!(s.get_struct_field());
     }
 
-    try!(v.get_bool_list());
+    try!(v.get_void_list());
+
+    let bl = try!(v.get_bool_list());
+    for idx in 0..bl.len() {
+        bl.get(idx);
+    }
+
+    let el = try!(v.get_enum_list());
+    for idx in 0..el.len() {
+        try!(el.get(idx));
+    }
+
+    let dl = try!(v.get_data_list());
+    for idx in 0..dl.len() {
+        try!(dl.get(idx));
+    }
+
+    try!(v.get_text_list());
     Ok(())
 }
 
@@ -23,7 +41,7 @@ fn try_go(mut data: &[u8]) -> ::capnp::Result<()> {
     let orig_data = data;
     let message_reader = try!(serialize::read_message(
         &mut data,
-        *message::ReaderOptions::new().traversal_limit_in_words(4 * 1024)));
+        *message::ReaderOptions::new().traversal_limit_in_words(10)));
     assert!(orig_data.len() > data.len());
 
     let root: test_all_types::Reader = try!(message_reader.get_root());
@@ -48,7 +66,7 @@ fn try_go(mut data: &[u8]) -> ::capnp::Result<()> {
 
 pub fn main() {
     use std::io::Read;
-    let mut data: Vec<u8> = vec![0; 56];
+    let mut data: Vec<u8> = vec![0; 64];
 
     // Set the size of the message to a concrete value because seer does
     // not yet support allocation of abstract size.

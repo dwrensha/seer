@@ -39,7 +39,7 @@ fn init_logger() {
 fn main() {
     init_logger();
     let consumer = |complete: ::seer::ExecutionComplete | {
-        println!("complete! {:?}", complete);
+        println!("{:?}", complete);
         println!("as string: {:?}", ::std::str::from_utf8(&complete.input));
         if let Err(_) = complete.result {
             println!("hit an error. halting");

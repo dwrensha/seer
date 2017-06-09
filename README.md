@@ -1,29 +1,65 @@
-# SEER: Symbolic Execution Engine for Rust
+# Seer: Symbolic Execution Engine for Rust
 
 [![Build Status](https://travis-ci.org/dwrensha/seer.svg?branch=master)](https://travis-ci.org/dwrensha/seer)
 [![crates.io](http://meritbadge.herokuapp.com/seer)](https://crates.io/crates/seer)
 
-SEER is a fork of [miri](https://github.com/solson/miri)
+Seer is a fork of [miri](https://github.com/solson/miri)
 that adds support for symbolic execution, using
 [z3](https://github.com/Z3Prover/z3) as a solver backend.
 
-Given a program, SEER attempts to exhaustively
+Given a program, Seer attempts to exhaustively
 enumerate the possible execution paths through that program.
-SEER represents program input in a _symbolic_ form
+Seer represents program input in a _symbolic_ form
 and maintains a set of constraints on it.
-When SEER reaches a branch in the program, it
-invokes its solver backend to compute which branches
+When Seer reaches a branch in the program, it
+invokes its solver backend to compute which continuations
 are feasible given the current constraints. The feasible
-branches are then enqueued for exploration, augmented with new
+ones are then enqueued for exploration, augmented with new
 constraints learned from the branch.
 
-SEER considers any bytes read in through `::std::io::stdin()`
+Seer considers any bytes read in through `::std::io::stdin()`
 as symbolic input. This means that once
-SEER finds an interesting input for your program,
-you can easily run exactly the same program outside of SEER
+Seer finds an interesting input for your program,
+you can easily run exactly the same program outside of Seer
 on that input.
 
+## example: decode base64 given only an encoder
+
+Suppose we are given a base64 encoder function:
+
+```rust
+fn base64_encode(input: &[u8]) -> String { ... }
+```
+
+and suppose that we would like to _decode_ a base64-encoded string,
+but we don't want to bother to actually write the corresponding
+`base64_decode()` function. We can write the following program and
+ask Seer to execute it:
 
 
+```rust
+fn main() {
+    let value_to_decode = "aGVsbG8gd29ybGQh";
+    let mut data: Vec<u8> = vec![0; (value_to_decode.len() + 3) / 4 * 3];
+    std::io::stdin().read_exact(&mut data[..]).unwrap();
 
+    let result = base64_encode(&data[..]);
 
+    if result.starts_with(value_to_decode) {
+        panic!("we found it!");
+    }
+}
+```
+
+Seer will then attempt to find input values that can trigger the panic.
+It succeeds after a few seconds:
+
+```
+$ cargo run --bin run_symbolic -- example/standalone/base64.rs
+    Finished dev [unoptimized + debuginfo] target(s) in 0.0 secs
+     Running `target/debug/run_symbolic example/standalone/base64.rs`
+ExecutionComplete { input: [104, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100, 33], result: Err(Panic) }
+as string: Ok("hello world!")
+hit an error. halting
+
+```

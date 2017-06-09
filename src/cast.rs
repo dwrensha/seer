@@ -29,7 +29,14 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     // the value concrete.
                     Ok(PrimVal::Abstract(sbytes))
                 } else {
-                    unimplemented!()
+                    match (kind, dest_kind) {
+                        (U8, Char) => {
+                            Ok(PrimVal::Abstract(sbytes))
+                        }
+                        _ => {
+                            unimplemented!()
+                        }
+                    }
                 }
             }
             _ => {
