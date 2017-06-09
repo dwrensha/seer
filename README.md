@@ -20,8 +20,8 @@ new constraints learned from the branching condition.
 Seer considers any bytes read in through `::std::io::stdin()`
 as symbolic input. This means that once
 Seer finds an interesting input for your program,
-you can easily run exactly the same program compiled with plain rustc
-on that input.
+you can easily compile your program with
+plain rustc and run it that input.
 
 ## example: decode base64 given only an encoder
 
