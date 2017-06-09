@@ -11,11 +11,11 @@ Given a program, Seer attempts to exhaustively
 enumerate the possible execution paths through that program.
 Seer represents program input in a _symbolic_ form
 and maintains a set of constraints on it.
-When Seer reaches a branch in the program, it
-invokes its solver backend to compute which continuations
+When Seer reaches a branching point in the program, it
+invokes its solver backend to compute which branches
 are feasible given the current constraints. The feasible
-ones are then enqueued for exploration, augmented with new
-constraints learned from the branch.
+branches are then enqueued for exploration, augmented with their
+corresponding new constraints.
 
 Seer considers any bytes read in through `::std::io::stdin()`
 as symbolic input. This means that once
@@ -24,6 +24,8 @@ you can easily run exactly the same program outside of Seer
 on that input.
 
 ## example: decode base64 given only an encoder
+
+[[source code](/example/standalone/base64.rs)]
 
 Suppose we are given a base64 encoder function:
 
@@ -63,3 +65,11 @@ as string: Ok("hello world!")
 hit an error. halting
 
 ```
+
+There is our answer! Our string decodes as "hello world!"
+
+# limitations
+
+Seer is currently in a proof-of-concept stage
+and therefore has lots of `unimplemented!()` holes in it.
+
