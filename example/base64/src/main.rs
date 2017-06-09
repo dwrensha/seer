@@ -4,7 +4,7 @@ fn main() {
     use std::io::Read;
     let mut data: Vec<u8> = vec![0; 12];
     let mut stdin = ::std::io::stdin();
-    stdin.read(&mut data[..]).unwrap();
+    stdin.read_exact(&mut data[..]).unwrap();
 
     let data_copy = data.clone();
 

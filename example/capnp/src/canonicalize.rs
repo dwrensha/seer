@@ -40,7 +40,7 @@ pub fn main() {
     data[7] = 0;
 
     let mut stdin = ::std::io::stdin();
-    stdin.read(&mut data[..]).unwrap();
+    stdin.read_exact(&mut data[..]).unwrap();
 
     let _ = try_go(&data[..]);
 }

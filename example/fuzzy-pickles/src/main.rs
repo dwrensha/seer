@@ -4,7 +4,7 @@ pub fn main() {
     use std::io::Read;
     let mut data: Vec<u8> = vec![0; 15];
     let mut stdin = ::std::io::stdin();
-    stdin.read(&mut data[..]).unwrap();
+    stdin.read_exact(&mut data[..]).unwrap();
 
     for idx in 0..data.len() {
         if data[idx] > 127 {
@@ -22,6 +22,4 @@ pub fn main() {
 
 
     let _ = ::fuzzy_pickles::parse_rust_file(&buf);
-
-    
 }
