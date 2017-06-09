@@ -21,7 +21,7 @@ Seer considers any bytes read in through `::std::io::stdin()`
 as symbolic input. This means that once
 Seer finds an interesting input for your program,
 you can easily compile your program with
-plain rustc and run it that input.
+plain rustc and run it on that input.
 
 ## example: decode base64 given only an encoder
 
