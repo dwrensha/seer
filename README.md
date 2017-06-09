@@ -1,5 +1,8 @@
 # SEER: Symbolic Execution Engine for Rust
 
+[![Build Status](https://travis-ci.org/dwrensha/seer.svg?branch=master)](https://travis-ci.org/dwrensha/seer)
+[![crates.io](http://meritbadge.herokuapp.com/seer)](https://crates.io/crates/seer)
+
 SEER is a fork of [miri](https://github.com/solson/miri)
 that adds support for symbolic execution, using
 [z3](https://github.com/Z3Prover/z3) as a solver backend.
