@@ -3,6 +3,12 @@ rust:
   - nightly
 os:
   - linux
+addons:
+  apt:
+    sources:
+    - sourceline: ppa:hvr/z3
+    packages:
+    - libz3-dev
 script:
   - cargo build
   - cargo test
