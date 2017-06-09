@@ -14,8 +14,8 @@ and maintains a set of constraints on it.
 When Seer reaches a branching point in the program, it
 invokes its solver backend to compute which branches
 are feasible given the current constraints. The feasible
-branches are then enqueued for exploration, augmented with their
-corresponding new constraints.
+branches are then enqueued for exploration, augmented with the
+new constraints learned from the branching condition.
 
 Seer considers any bytes read in through `::std::io::stdin()`
 as symbolic input. This means that once
