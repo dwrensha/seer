@@ -70,6 +70,18 @@ There is our answer! Our string decodes as "hello world!"
 
 # limitations
 
-Seer is currently in a proof-of-concept stage
+Seer is currently in the proof-of-concept stage
 and therefore has lots of `unimplemented!()` holes in it.
+In particular, it does not yet handle:
 
+ - allocations with size depending on symbolic input
+ - pointer-to-pointer with abstract offset
+ - overflow checking on abstract arithmetic
+ - ... lots of other things that you will quickly discover if you try to use it!
+
+# long-term vision
+
+The goal is that Seer will help in two primary use cases:
+
+ - in exploratory tests, as a complementary approach to [fuzzing](https://github.com/rust-fuzz)
+ - in program verification, to exhaustively check that error states cannot be reached
