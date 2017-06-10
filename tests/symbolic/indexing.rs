@@ -13,6 +13,6 @@ fn main() {
     }
 
     if v[(data[0] & 0x7f) as usize] == 73 {
-        panic!()
+        panic!();
     }
 }

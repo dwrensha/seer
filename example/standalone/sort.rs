@@ -1,8 +1,7 @@
 fn main() {
-    use std::io::Read;
+    use std::io::{stdin, Read};
     let mut data: Vec<u8> = vec![0; 5];
-    let mut stdin = ::std::io::stdin();
-    stdin.read_exact(&mut data[..]).unwrap();
+    stdin().read_exact(&mut data[..]).unwrap();
 
     data.sort();
 

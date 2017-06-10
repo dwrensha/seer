@@ -53,6 +53,14 @@ pub enum Constraint {
         index: PrimVal,
         value: SByte,
     },
+
+    /// lhs = array.store(idx, value)
+    ArrayStore {
+        array: AbstractVariable,
+        index: PrimVal,
+        value: SByte,
+        lhs: AbstractVariable,
+    }
 }
 
 impl Constraint {
@@ -207,6 +215,21 @@ impl ConstraintContext {
             });
 
         value
+    }
+
+    pub fn store_array_element(
+        &mut self,
+        array: AbstractVariable,
+        index: PrimVal,
+        value: SByte)
+        -> AbstractVariable
+    {
+        let new_array = self.new_array();
+        self.push_constraint(
+            Constraint::ArrayStore {
+                array, index, value, lhs: new_array,
+            });
+        new_array
     }
 
     pub fn get_satisfying_values(&self) -> Vec<u8> {
@@ -382,6 +405,26 @@ impl ConstraintContext {
                 c.select(&self.primval_to_ast(ctx, index, PrimValKind::U64))._eq(
                     &self.sbyte_to_ast(ctx, value))
             }
+
+            Constraint::ArrayStore { array, index, value, lhs } => {
+                let c0 = ::z3::Ast::new_const(
+                    &::z3::Symbol::from_int(ctx, array.0),
+                    &ctx.array_sort(
+                        &ctx.bitvector_sort(64),
+                        &ctx.bitvector_sort(8)));
+
+                let c1 = ::z3::Ast::new_const(
+                    &::z3::Symbol::from_int(ctx, lhs.0),
+                    &ctx.array_sort(
+                        &ctx.bitvector_sort(64),
+                        &ctx.bitvector_sort(8)));
+
+                c1._eq(
+                    &c0.store(
+                        &self.primval_to_ast(ctx, index, PrimValKind::U64),
+                        &self.sbyte_to_ast(ctx, value)))
+            }
+
         }
     }
 

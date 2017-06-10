@@ -761,22 +761,7 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
             unimplemented!()
         }
 
-        let arr = self.constraints.new_array();
-        let mut constraints = Vec::new();
-        {
-            let src_alloc = self.get(src.alloc_id)?;
-            if !src_alloc.relocations.is_empty() {
-                unimplemented!()
-            }
-
-            for idx in 0..src_alloc.bytes.len() {
-                constraints.push((PrimVal::Bytes(idx as u128), src_alloc.bytes[idx]));
-            }
-        }
-        for (primval, sbyte) in constraints {
-            self.constraints.set_array_element_constraint(arr, primval, sbyte);
-        }
-
+        let arr = self.symbolize_allocation(src.alloc_id)?;
         match (src.offset, dest.offset) {
             (PointerOffset::Abstract(src_offset),
              PointerOffset::Concrete(_dest_offset)) => {
@@ -796,6 +781,26 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
         }
 
         Ok(())
+    }
+
+    fn symbolize_allocation(&mut self, alloc_id: AllocId) -> EvalResult<'tcx, AbstractVariable> {
+        let arr = self.constraints.new_array();
+        let mut constraints = Vec::new();
+        {
+            let alloc = self.get(alloc_id)?;
+            if !alloc.relocations.is_empty() {
+                unimplemented!()
+            }
+
+            for idx in 0..alloc.bytes.len() {
+                constraints.push((PrimVal::Bytes(idx as u128), alloc.bytes[idx]));
+            }
+        }
+        for (primval, sbyte) in constraints {
+            self.constraints.set_array_element_constraint(arr, primval, sbyte);
+        }
+
+        Ok(arr)
     }
 
     pub fn read_c_str(&self, _ptr: Pointer) -> EvalResult<'tcx, &[u8]> {
@@ -896,6 +901,10 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
         val: PrimVal,
         size: u64,
     ) -> EvalResult<'tcx> {
+        if !dest.is_concrete() {
+            return self.write_primval_to_abstract_ptr(dest, val, size);
+        }
+
         match val {
             PrimVal::Ptr(ptr) => {
                 assert_eq!(size, self.pointer_size());
@@ -931,6 +940,63 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
             }
 
             PrimVal::Undef => self.mark_definedness(dest, size, false),
+        }
+    }
+
+    fn write_primval_to_abstract_ptr(
+        &mut self,
+        dest: Pointer,
+        val: PrimVal,
+        size: u64,
+    ) -> EvalResult<'tcx> {
+        if let PointerOffset::Abstract(sbytes) = dest.offset {
+            let mut arr = self.symbolize_allocation(dest.alloc_id)?;
+            match val {
+                PrimVal::Ptr(_ptr) => unimplemented!(),
+
+                PrimVal::Bytes(n) => {
+                    // We need to mask here, or the byteorder crate can die when given a u64 larger
+                    // than fits in an integer of the requested size.
+                    let mask = match size {
+                        1 => !0u8 as u128,
+                        2 => !0u16 as u128,
+                        4 => !0u32 as u128,
+                        8 => !0u64 as u128,
+                        16 => !0,
+                        _ => bug!("unexpected PrimVal::Bytes size"),
+                    };
+
+                    let mut bytes = vec![0u8; size as usize];
+                    let endianness = self.endianess();
+                    Self::write_target_uint(endianness, &mut bytes[..], n & mask).unwrap();
+
+                    for idx in 0..size {
+                        arr = self.constraints.store_array_element(
+                            arr, PrimVal::Abstract(sbytes), SByte::Concrete(bytes[idx as usize]));
+                    }
+                }
+
+                PrimVal::Abstract(_sbytes) => {
+                    unimplemented!()
+                }
+
+                PrimVal::Undef => unimplemented!(),
+            }
+
+            // now write the values of arr back to the dest allocation
+
+            let dest_alloc_len = self.get(dest.alloc_id)?.bytes.len();
+            for idx in 0..dest_alloc_len {
+                let sbyte = self.constraints.add_array_element_constraint(
+                    arr, PrimVal::Bytes(idx as u128));
+
+                let ptr = Pointer::new(dest.alloc_id, idx as u64);
+                self.get_bytes_mut(ptr, 1, 1)?[0] = sbyte;
+            }
+
+            Ok(())
+        } else {
+            unreachable!()
         }
     }
 
