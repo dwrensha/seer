@@ -94,7 +94,7 @@ fn symbolic_read_signed_int() {
 fn symbolic_indexing() {
     expect_single_panic(
         "tests/symbolic/indexing.rs",
-        vec![73]);
+        vec![73, 158]);
 }
 
 #[test]

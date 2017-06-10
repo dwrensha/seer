@@ -971,8 +971,14 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
                     Self::write_target_uint(endianness, &mut bytes[..], n & mask).unwrap();
 
                     for idx in 0..size {
+                        let abs_idx = self.constraints.add_binop_constraint(
+                            mir::BinOp::Add,
+                            PrimVal::Bytes(idx as u128),
+                            PrimVal::Abstract(sbytes),
+                            PrimValKind::U64);
+
                         arr = self.constraints.store_array_element(
-                            arr, PrimVal::Abstract(sbytes), SByte::Concrete(bytes[idx as usize]));
+                            arr, abs_idx, SByte::Concrete(bytes[idx as usize]));
                     }
                 }
 
