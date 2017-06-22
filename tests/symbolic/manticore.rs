@@ -143,9 +143,9 @@ fn check(buf: &[u8]) -> Result<(), ()> {
 pub fn main() {
     use std::io::Read;
 
-    let mut data: Vec<u8> = vec![0; 21];
+    let mut data = [0; 21];
     let mut stdin = ::std::io::stdin();
-    stdin.read(&mut data[..]).unwrap();
+    stdin.read_exact(&mut data[..]).unwrap();
 
     if Ok(()) == check(&data[..]) && &data[12..] == &[1,2,3,4,5,50,51,29,212] {
         panic!("found the secret code");

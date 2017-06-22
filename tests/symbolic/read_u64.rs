@@ -1,8 +1,8 @@
 fn main() {
     use std::io::Read;
-    let mut data: Vec<u8> = vec![0; 8];
+    let mut data = [0; 8];
     let mut stdin = ::std::io::stdin();
-    stdin.read(&mut data[..]).unwrap();
+    stdin.read_exact(&mut data[..]).unwrap();
 
     let eight_bytes =
         (data[0] as u64) +

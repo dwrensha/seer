@@ -1,15 +1,16 @@
+const BUFFER_LENGTH: usize = 4;
+
 fn main() {
     use std::io::Read;
 
-    let mut data: Vec<u8> = vec![0; 4];
+    let mut data = [0; BUFFER_LENGTH];
     let mut stdin = ::std::io::stdin();
-    stdin.read(&mut data[..]).unwrap();
-
+    stdin.read_exact(&mut data[..]).unwrap();
 
     // should panic on [ 7, 3, 21, 21 ]
 
     if data.len() >= 4 {
-        let mut v = vec![0; data.len()];
+        let mut v = [0; BUFFER_LENGTH];
         v[0] += data[3];
         v[1] = v[0] + data[2];
         if v[0] == 21 && v[1] == 42 {

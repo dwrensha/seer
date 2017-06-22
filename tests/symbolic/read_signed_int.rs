@@ -1,6 +1,6 @@
 fn main() {
     use std::io::Read;
-    let mut data: Vec<u8> = vec![0; 15];
+    let mut data = [0; 15];
     let mut stdin = ::std::io::stdin();
     stdin.read(&mut data[..]).unwrap();
 
