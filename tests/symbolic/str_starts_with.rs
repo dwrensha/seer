@@ -10,13 +10,7 @@ fn main() {
         }
     }
 
-    let mut buf = String::new();
-    {
-        let mut buf_bytes = unsafe { buf.as_mut_vec() };
-        for idx in 0..data.len() {
-            buf_bytes.push(data[idx]);
-        }
-    }
+    let buf = unsafe { ::std::str::from_utf8_unchecked(&data[..]) };
 
     if buf.starts_with("hello") {
         if buf.as_bytes()[5..].starts_with(b" world") {
