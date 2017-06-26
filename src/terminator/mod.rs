@@ -659,6 +659,37 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                         return Ok(true);
                     }
 
+                    "<alloc::heap::HeapAlloc as alloc::allocator::Alloc>::alloc_zeroed" => {
+                        let (lval, block) = destination.expect("alloc_zeroed() does not diverge");
+                        let dest_ptr = self.force_allocation(lval)?.to_ptr();
+
+                        let args_res: EvalResult<Vec<Value>> = arg_operands.iter()
+                            .map(|arg| self.eval_operand(arg))
+                            .collect();
+                        let args = args_res?;
+
+                        let (size, align) = match args[1] {
+                            Value::ByRef(ptr) => {
+                                (self.memory.read_uint(ptr, 8)?.to_u64()?,
+                                 self.memory.read_uint(ptr.offset(8), 8)?.to_u64()?)
+                            }
+                            Value::ByValPair(_size, _align) => {
+                                unimplemented!()
+                            }
+                            Value::ByVal(_) => unreachable!(),
+                        };
+
+                        let ptr = self.memory.allocate(size, align)?;
+                        self.memory.write_repeat(ptr, 0, size)?;
+
+                        self.memory.write_uint(dest_ptr, 0, 8)?; // discriminant = Ok
+                        self.memory.write_ptr(dest_ptr.offset(8), ptr)?;
+
+                        self.goto_block(block);
+                        return Ok(true);
+                    }
+
+
                     _ => (),
                 }
             }
