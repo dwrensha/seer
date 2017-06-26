@@ -569,162 +569,6 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                             EvalError::Unimplemented(
                                 "no abstract implementation for stdin.lock()".into()));
                     }
-                    "alloc::allocator::Layout::from_size_align" => {
-                        let (lval, block) = destination.expect("from_size_align() does not diverge");
-                        let dest_ptr = self.force_allocation(lval)?.to_ptr();
-
-                        let args_res: EvalResult<Vec<Value>> = arg_operands.iter()
-                            .map(|arg| self.eval_operand(arg))
-                            .collect();
-                        let args = args_res?;
-
-                        let usize = self.tcx.types.usize;
-                        let size = self.value_to_primval(args[0], usize)?.to_u128()?;
-                        let align = self.value_to_primval(args[1], usize)?.to_u128()?;
-
-                        if !align.is_power_of_two() {
-                            unimplemented!();
-                        }
-
-                        if size as usize > ::std::usize::MAX - (align as usize - 1) {
-                            unimplemented!();
-                        }
-
-                        // FIXME make this more robust
-                        self.memory.write_uint(dest_ptr, 1, 8)?; // discriminant = Some
-
-                        // payload
-                        self.memory.write_uint(dest_ptr.offset(8), size, 8)?;
-                        self.memory.write_uint(dest_ptr.offset(16), align, 8)?;
-
-                        self.goto_block(block);
-                        return Ok(true);
-                    }
-                    "<alloc::heap::HeapAlloc as alloc::allocator::Alloc>::alloc_zeroed" => {
-                        let (lval, block) = destination.expect("alloc_zeroed() does not diverge");
-                        let dest_ptr = self.force_allocation(lval)?.to_ptr();
-
-                        let args_res: EvalResult<Vec<Value>> = arg_operands.iter()
-                            .map(|arg| self.eval_operand(arg))
-                            .collect();
-                        let args = args_res?;
-
-                        let (size, align) = match args[1] {
-                            Value::ByRef(ptr) => {
-                                (self.memory.read_uint(ptr, 8)?.to_u64()?,
-                                 self.memory.read_uint(ptr.offset(8), 8)?.to_u64()?)
-                            }
-                            Value::ByValPair(_size, _align) => {
-                                unimplemented!()
-                            }
-                            Value::ByVal(_) => unreachable!(),
-                        };
-
-                        let ptr = self.memory.allocate(size, align)?;
-                        self.memory.write_repeat(ptr, 0, size)?;
-
-                        self.memory.write_uint(dest_ptr, 0, 8)?; // discriminant = Ok
-                        self.memory.write_ptr(dest_ptr.offset(8), ptr)?;
-
-                        self.goto_block(block);
-                        return Ok(true);
-                    }
-
-                    "<alloc::heap::HeapAlloc as alloc::allocator::Alloc>::alloc" => {
-                        let (lval, block) = destination.expect("alloc() does not diverge");
-                        let dest_ptr = self.force_allocation(lval)?.to_ptr();
-
-                        let args_res: EvalResult<Vec<Value>> = arg_operands.iter()
-                            .map(|arg| self.eval_operand(arg))
-                            .collect();
-                        let args = args_res?;
-
-                        let (size, align) = match args[1] {
-                            Value::ByRef(ptr) => {
-                                (self.memory.read_uint(ptr, 8)?.to_u64()?,
-                                 self.memory.read_uint(ptr.offset(8), 8)?.to_u64()?)
-                            }
-                            Value::ByValPair(_size, _align) => {
-                                unimplemented!()
-                            }
-                            Value::ByVal(_) => unreachable!(),
-                        };
-
-                        let ptr = self.memory.allocate(size, align)?;
-
-                        self.memory.write_uint(dest_ptr, 0, 8)?; // discriminant = Ok
-                        self.memory.write_ptr(dest_ptr.offset(8), ptr)?;
-
-                        self.goto_block(block);
-                        return Ok(true);
-                    }
-
-                    "alloc::allocator::Layout::size" => {
-                        let (lval, block) = destination.expect("size() does not diverge");
-                        let args_res: EvalResult<Vec<Value>> = arg_operands.iter()
-                            .map(|arg| self.eval_operand(arg))
-                            .collect();
-                        let args = args_res?;
-
-                        let self_size = match args[0] {
-                            Value::ByVal(PrimVal::Ptr(ptr)) => {
-                                self.memory.read_uint(ptr, 8)?.to_u64()?
-                            }
-                            _ => unreachable!(),
-                        };
-
-                        self.write_primval(lval, PrimVal::Bytes(self_size as u128), sig.output())?;
-                        self.goto_block(block);
-                        return Ok(true);
-                    }
-
-                    "alloc::allocator::Layout::repeat" => {
-                        let (lval, block) = destination.expect("repeat() does not diverge");
-                        let dest_ptr = self.force_allocation(lval)?.to_ptr();
-
-                        let args_res: EvalResult<Vec<Value>> = arg_operands.iter()
-                            .map(|arg| self.eval_operand(arg))
-                            .collect();
-                        let args = args_res?;
-
-                        let (self_size, self_align) = match args[0] {
-                            Value::ByVal(PrimVal::Ptr(ptr)) => {
-                                (self.memory.read_uint(ptr, 8)?.to_u64()?,
-                                 self.memory.read_uint(ptr.offset(8), 8)?.to_u64()?)
-                            }
-                            _ => unreachable!(),
-                        };
-
-                        let usize = self.tcx.types.usize;
-                        let n = self.value_to_primval(args[1], usize)?.to_u64()?;
-
-                        let padding_needed = {
-                            let len = self_size;
-                            let len_rounded_up =
-                                len.wrapping_add(self_align).wrapping_sub(1) & !self_align.wrapping_sub(1);
-                            len_rounded_up.wrapping_sub(len)
-                        };
-
-                        let padded_size = match self_size.checked_add(padding_needed) {
-                            None => unimplemented!(), // return None
-                            Some(padded_size) => padded_size,
-                        };
-                        let alloc_size = match padded_size.checked_mul(n) {
-                            None => unimplemented!(), // return None
-                            Some(alloc_size) => alloc_size,
-                        };
-
-                        self.memory.write_uint(dest_ptr, 1, 8)?; // discriminant = Some
-
-                        // payload
-                        self.memory.write_uint(dest_ptr.offset(8), alloc_size as u128, 8)?;
-                        self.memory.write_uint(dest_ptr.offset(16), self_align as u128, 8)?;
-                        self.memory.write_uint(dest_ptr.offset(24), padded_size as u128, 8)?;
-
-                        self.goto_block(block);
-                        return Ok(true);
-                    }
-
                     _ => (),
                 }
             }
@@ -736,29 +580,9 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         let mir = match self.load_mir(instance.def) {
             Ok(mir) => mir,
             Err(EvalError::NoMirFor(path)) => {
-                match &path[..] {
-                    // let's just ignore all output for now
-                    "std::io::_print" => {
-                        self.goto_block(destination.unwrap().1);
-                        return Ok(true);
-                    },
-                    "std::thread::Builder::new" => return Err(EvalError::Unimplemented("miri does not support threading".to_owned())),
-                    "std::env::args" => return Err(EvalError::Unimplemented("miri does not support program arguments".to_owned())),
-                    "std::panicking::rust_panic_with_hook" |
-                    "std::rt::begin_panic_fmt" => return Err(EvalError::Panic),
-                    "std::panicking::panicking" |
-                    "std::rt::panicking" => {
-                        let (lval, block) = destination.expect("std::rt::panicking does not diverge");
-                        // we abort on panic -> `std::rt::panicking` always returns false
-                        let bool = self.tcx.types.bool;
-                        self.write_primval(lval, PrimVal::from_bool(false), bool)?;
-                        self.goto_block(block);
-                        return Ok(true);
-                    }
-                    _ => {},
-                }
-                return Err(EvalError::NoMirFor(path));
-            },
+                self.call_missing_fn(instance, destination, arg_operands, sig, path)?;
+                return Ok(true);
+            }
             Err(other) => return Err(other),
         };
         let (return_lvalue, return_to_block) = match destination {
@@ -829,6 +653,204 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         };
         assert!(nndiscr == 0 || nndiscr == 1);
         Ok(if not_null { nndiscr } else { 1 - nndiscr })
+    }
+
+    /// Returns Ok() when the function was handled, fail otherwise
+    fn call_missing_fn(
+        &mut self,
+        instance: ty::Instance<'tcx>,
+        destination: Option<(Lvalue<'tcx>, mir::BasicBlock)>,
+        arg_operands: &[mir::Operand<'tcx>],
+        sig: ty::FnSig<'tcx>,
+        path: String,
+    ) -> EvalResult<'tcx> {
+        if sig.abi == Abi::C {
+            // An external C function
+            let ty = sig.output();
+            let (ret, target) = destination.unwrap();
+            self.call_c_abi(instance.def_id(), arg_operands, ret, ty, target)?;
+            return Ok(());
+        }
+
+        // A Rust function is missing, which means we are running with MIR missing for libstd (or other dependencies).
+        // Still, we can make many things mostly work by "emulating" or ignoring some functions.
+        match &path[..] {
+            "std::io::_print" => {
+                trace!("Ignoring output.  To run programs that print, make sure you have a libstd with full MIR.");
+                self.goto_block(destination.unwrap().1);
+                Ok(())
+            },
+            "std::thread::Builder::new" => Err(EvalError::Unimplemented("miri does not support threading".to_owned())),
+            "std::env::args" => Err(EvalError::Unimplemented("miri does not support program arguments".to_owned())),
+            "std::panicking::rust_panic_with_hook" |
+            "std::rt::begin_panic_fmt" => Err(EvalError::Panic),
+            "std::panicking::panicking" |
+            "std::rt::panicking" => {
+                let (lval, block) = destination.expect("std::rt::panicking does not diverge");
+                // we abort on panic -> `std::rt::panicking` always returns false
+                let bool = self.tcx.types.bool;
+                self.write_primval(lval, PrimVal::from_bool(false), bool)?;
+                self.goto_block(block);
+                Ok(())
+            }
+            "alloc::allocator::Layout::from_size_align" => {
+                let (lval, block) = destination.expect("from_size_align() does not diverge");
+                let dest_ptr = self.force_allocation(lval)?.to_ptr();
+
+                let args_res: EvalResult<Vec<Value>> = arg_operands.iter()
+                    .map(|arg| self.eval_operand(arg))
+                    .collect();
+                let args = args_res?;
+
+                let usize = self.tcx.types.usize;
+                let size = self.value_to_primval(args[0], usize)?.to_u128()?;
+                let align = self.value_to_primval(args[1], usize)?.to_u128()?;
+
+                if !align.is_power_of_two() {
+                    unimplemented!();
+                }
+
+                if size as usize > ::std::usize::MAX - (align as usize - 1) {
+                    unimplemented!();
+                }
+
+                // FIXME make this more robust
+                self.memory.write_uint(dest_ptr, 1, 8)?; // discriminant = Some
+
+                // payload
+                self.memory.write_uint(dest_ptr.offset(8), size, 8)?;
+                self.memory.write_uint(dest_ptr.offset(16), align, 8)?;
+
+                self.goto_block(block);
+                return Ok(());
+            }
+            "<alloc::heap::HeapAlloc as alloc::allocator::Alloc>::alloc_zeroed" => {
+                let (lval, block) = destination.expect("alloc_zeroed() does not diverge");
+                let dest_ptr = self.force_allocation(lval)?.to_ptr();
+
+                let args_res: EvalResult<Vec<Value>> = arg_operands.iter()
+                    .map(|arg| self.eval_operand(arg))
+                    .collect();
+                let args = args_res?;
+
+                let (size, align) = match args[1] {
+                    Value::ByRef(ptr) => {
+                        (self.memory.read_uint(ptr, 8)?.to_u64()?,
+                         self.memory.read_uint(ptr.offset(8), 8)?.to_u64()?)
+                    }
+                    Value::ByValPair(_size, _align) => {
+                        unimplemented!()
+                    }
+                    Value::ByVal(_) => unreachable!(),
+                };
+
+                let ptr = self.memory.allocate(size, align)?;
+                self.memory.write_repeat(ptr, 0, size)?;
+
+                self.memory.write_uint(dest_ptr, 0, 8)?; // discriminant = Ok
+                self.memory.write_ptr(dest_ptr.offset(8), ptr)?;
+
+                self.goto_block(block);
+                return Ok(());
+            }
+
+            "<alloc::heap::HeapAlloc as alloc::allocator::Alloc>::alloc" => {
+                let (lval, block) = destination.expect("alloc() does not diverge");
+                let dest_ptr = self.force_allocation(lval)?.to_ptr();
+
+                let args_res: EvalResult<Vec<Value>> = arg_operands.iter()
+                    .map(|arg| self.eval_operand(arg))
+                    .collect();
+                let args = args_res?;
+
+                let (size, align) = match args[1] {
+                    Value::ByRef(ptr) => {
+                        (self.memory.read_uint(ptr, 8)?.to_u64()?,
+                         self.memory.read_uint(ptr.offset(8), 8)?.to_u64()?)
+                    }
+                    Value::ByValPair(_size, _align) => {
+                        unimplemented!()
+                    }
+                    Value::ByVal(_) => unreachable!(),
+                };
+
+                let ptr = self.memory.allocate(size, align)?;
+
+                self.memory.write_uint(dest_ptr, 0, 8)?; // discriminant = Ok
+                self.memory.write_ptr(dest_ptr.offset(8), ptr)?;
+
+                self.goto_block(block);
+                return Ok(());
+            }
+
+            "alloc::allocator::Layout::size" => {
+                let (lval, block) = destination.expect("size() does not diverge");
+                let args_res: EvalResult<Vec<Value>> = arg_operands.iter()
+                    .map(|arg| self.eval_operand(arg))
+                    .collect();
+                let args = args_res?;
+
+                let self_size = match args[0] {
+                    Value::ByVal(PrimVal::Ptr(ptr)) => {
+                        self.memory.read_uint(ptr, 8)?.to_u64()?
+                    }
+                    _ => unreachable!(),
+                };
+
+                self.write_primval(lval, PrimVal::Bytes(self_size as u128), sig.output())?;
+                self.goto_block(block);
+                return Ok(());
+            }
+
+            "alloc::allocator::Layout::repeat" => {
+                let (lval, block) = destination.expect("repeat() does not diverge");
+                let dest_ptr = self.force_allocation(lval)?.to_ptr();
+
+                let args_res: EvalResult<Vec<Value>> = arg_operands.iter()
+                    .map(|arg| self.eval_operand(arg))
+                    .collect();
+                let args = args_res?;
+
+                let (self_size, self_align) = match args[0] {
+                    Value::ByVal(PrimVal::Ptr(ptr)) => {
+                        (self.memory.read_uint(ptr, 8)?.to_u64()?,
+                         self.memory.read_uint(ptr.offset(8), 8)?.to_u64()?)
+                    }
+                    _ => unreachable!(),
+                };
+
+                let usize = self.tcx.types.usize;
+                let n = self.value_to_primval(args[1], usize)?.to_u64()?;
+
+                let padding_needed = {
+                    let len = self_size;
+                    let len_rounded_up =
+                        len.wrapping_add(self_align).wrapping_sub(1) & !self_align.wrapping_sub(1);
+                    len_rounded_up.wrapping_sub(len)
+                };
+
+                let padded_size = match self_size.checked_add(padding_needed) {
+                    None => unimplemented!(), // return None
+                    Some(padded_size) => padded_size,
+                };
+                let alloc_size = match padded_size.checked_mul(n) {
+                    None => unimplemented!(), // return None
+                    Some(alloc_size) => alloc_size,
+                };
+
+                self.memory.write_uint(dest_ptr, 1, 8)?; // discriminant = Some
+
+                // payload
+                self.memory.write_uint(dest_ptr.offset(8), alloc_size as u128, 8)?;
+                self.memory.write_uint(dest_ptr.offset(16), self_align as u128, 8)?;
+                self.memory.write_uint(dest_ptr.offset(24), padded_size as u128, 8)?;
+
+                self.goto_block(block);
+                return Ok(());
+            }
+
+            _ => Err(EvalError::NoMirFor(path)),
+        }
     }
 
     fn call_c_abi(
