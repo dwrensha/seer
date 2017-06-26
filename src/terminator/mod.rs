@@ -831,6 +831,46 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 return Ok(());
             }
 
+            "<alloc::heap::HeapAlloc as alloc::allocator::Alloc>::realloc" => {
+                let (lval, block) = destination.expect("realloc() does not diverge");
+                let dest_ptr = self.force_allocation(lval)?.to_ptr();
+
+
+                let ptr = match args[1] {
+                    Value::ByVal(PrimVal::Ptr(p)) => p,
+                    _ => unimplemented!(),
+                };
+
+                let (new_size, new_align) = match args[3] {
+                    Value::ByRef(ptr) => {
+                        (self.memory.read_uint(ptr, 8)?.to_u64()?,
+                         self.memory.read_uint(ptr.offset(8), 8)?.to_u64()?)
+                    }
+                    _ => unimplemented!(),
+                };
+
+                let new_ptr = self.memory.reallocate(ptr, new_size, new_align)?;
+
+                self.memory.write_uint(dest_ptr, 0, 8)?; // discriminant = Ok
+                self.memory.write_ptr(dest_ptr.offset(8), new_ptr)?;
+
+                self.goto_block(block);
+                return Ok(());
+            }
+
+            "<alloc::heap::HeapAlloc as alloc::allocator::Alloc>::dealloc" => {
+                let (_lval, block) = destination.expect("dealloc() does not diverge");
+
+                let ptr = match args[1] {
+                    Value::ByVal(PrimVal::Ptr(p)) => p,
+                    _ => unimplemented!(),
+                };
+
+                self.memory.deallocate(ptr)?;
+                self.goto_block(block);
+                return Ok(());
+            }
+
             _ => Err(EvalError::NoMirFor(path)),
         }
     }
