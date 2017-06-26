@@ -674,6 +674,12 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
 
         // A Rust function is missing, which means we are running with MIR missing for libstd (or other dependencies).
         // Still, we can make many things mostly work by "emulating" or ignoring some functions.
+
+        let args_res: EvalResult<Vec<Value>> = arg_operands.iter()
+            .map(|arg| self.eval_operand(arg))
+            .collect();
+        let args = args_res?;
+
         match &path[..] {
             "std::io::_print" => {
                 trace!("Ignoring output.  To run programs that print, make sure you have a libstd with full MIR.");
@@ -696,11 +702,6 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             "alloc::allocator::Layout::from_size_align" => {
                 let (lval, block) = destination.expect("from_size_align() does not diverge");
                 let dest_ptr = self.force_allocation(lval)?.to_ptr();
-
-                let args_res: EvalResult<Vec<Value>> = arg_operands.iter()
-                    .map(|arg| self.eval_operand(arg))
-                    .collect();
-                let args = args_res?;
 
                 let usize = self.tcx.types.usize;
                 let size = self.value_to_primval(args[0], usize)?.to_u128()?;
@@ -728,11 +729,6 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 let (lval, block) = destination.expect("alloc_zeroed() does not diverge");
                 let dest_ptr = self.force_allocation(lval)?.to_ptr();
 
-                let args_res: EvalResult<Vec<Value>> = arg_operands.iter()
-                    .map(|arg| self.eval_operand(arg))
-                    .collect();
-                let args = args_res?;
-
                 let (size, align) = match args[1] {
                     Value::ByRef(ptr) => {
                         (self.memory.read_uint(ptr, 8)?.to_u64()?,
@@ -758,11 +754,6 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 let (lval, block) = destination.expect("alloc() does not diverge");
                 let dest_ptr = self.force_allocation(lval)?.to_ptr();
 
-                let args_res: EvalResult<Vec<Value>> = arg_operands.iter()
-                    .map(|arg| self.eval_operand(arg))
-                    .collect();
-                let args = args_res?;
-
                 let (size, align) = match args[1] {
                     Value::ByRef(ptr) => {
                         (self.memory.read_uint(ptr, 8)?.to_u64()?,
@@ -785,10 +776,6 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
 
             "alloc::allocator::Layout::size" => {
                 let (lval, block) = destination.expect("size() does not diverge");
-                let args_res: EvalResult<Vec<Value>> = arg_operands.iter()
-                    .map(|arg| self.eval_operand(arg))
-                    .collect();
-                let args = args_res?;
 
                 let self_size = match args[0] {
                     Value::ByVal(PrimVal::Ptr(ptr)) => {
@@ -805,11 +792,6 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             "alloc::allocator::Layout::repeat" => {
                 let (lval, block) = destination.expect("repeat() does not diverge");
                 let dest_ptr = self.force_allocation(lval)?.to_ptr();
-
-                let args_res: EvalResult<Vec<Value>> = arg_operands.iter()
-                    .map(|arg| self.eval_operand(arg))
-                    .collect();
-                let args = args_res?;
 
                 let (self_size, self_align) = match args[0] {
                     Value::ByVal(PrimVal::Ptr(ptr)) => {
