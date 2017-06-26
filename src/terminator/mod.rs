@@ -659,8 +659,27 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                         return Ok(true);
                     }
 
-                    "<alloc::heap::HeapAlloc as alloc::allocator::Alloc>::alloc_zeroed" => {
-                        let (lval, block) = destination.expect("alloc_zeroed() does not diverge");
+                    "alloc::allocator::Layout::size" => {
+                        let (lval, block) = destination.expect("size() does not diverge");
+                        let args_res: EvalResult<Vec<Value>> = arg_operands.iter()
+                            .map(|arg| self.eval_operand(arg))
+                            .collect();
+                        let args = args_res?;
+
+                        let self_size = match args[0] {
+                            Value::ByVal(PrimVal::Ptr(ptr)) => {
+                                self.memory.read_uint(ptr, 8)?.to_u64()?
+                            }
+                            _ => unreachable!(),
+                        };
+
+                        self.write_primval(lval, PrimVal::Bytes(self_size as u128), sig.output())?;
+                        self.goto_block(block);
+                        return Ok(true);
+                    }
+
+                    "alloc::allocator::Layout::repeat" => {
+                        let (lval, block) = destination.expect("repeat() does not diverge");
                         let dest_ptr = self.force_allocation(lval)?.to_ptr();
 
                         let args_res: EvalResult<Vec<Value>> = arg_operands.iter()
@@ -668,27 +687,43 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                             .collect();
                         let args = args_res?;
 
-                        let (size, align) = match args[1] {
-                            Value::ByRef(ptr) => {
+                        let (self_size, self_align) = match args[0] {
+                            Value::ByVal(PrimVal::Ptr(ptr)) => {
                                 (self.memory.read_uint(ptr, 8)?.to_u64()?,
                                  self.memory.read_uint(ptr.offset(8), 8)?.to_u64()?)
                             }
-                            Value::ByValPair(_size, _align) => {
-                                unimplemented!()
-                            }
-                            Value::ByVal(_) => unreachable!(),
+                            _ => unreachable!(),
                         };
 
-                        let ptr = self.memory.allocate(size, align)?;
-                        self.memory.write_repeat(ptr, 0, size)?;
+                        let usize = self.tcx.types.usize;
+                        let n = self.value_to_primval(args[1], usize)?.to_u64()?;
 
-                        self.memory.write_uint(dest_ptr, 0, 8)?; // discriminant = Ok
-                        self.memory.write_ptr(dest_ptr.offset(8), ptr)?;
+                        let padding_needed = {
+                            let len = self_size;
+                            let len_rounded_up =
+                                len.wrapping_add(self_align).wrapping_sub(1) & !self_align.wrapping_sub(1);
+                            len_rounded_up.wrapping_sub(len)
+                        };
+
+                        let padded_size = match self_size.checked_add(padding_needed) {
+                            None => unimplemented!(), // return None
+                            Some(padded_size) => padded_size,
+                        };
+                        let alloc_size = match padded_size.checked_mul(n) {
+                            None => unimplemented!(), // return None
+                            Some(alloc_size) => alloc_size,
+                        };
+
+                        self.memory.write_uint(dest_ptr, 1, 8)?; // discriminant = Some
+
+                        // payload
+                        self.memory.write_uint(dest_ptr.offset(8), alloc_size as u128, 8)?;
+                        self.memory.write_uint(dest_ptr.offset(16), self_align as u128, 8)?;
+                        self.memory.write_uint(dest_ptr.offset(24), padded_size as u128, 8)?;
 
                         self.goto_block(block);
                         return Ok(true);
                     }
-
 
                     _ => (),
                 }
