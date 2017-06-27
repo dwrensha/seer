@@ -557,9 +557,12 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                         // Write `Ok(num_bytes)` to the return value.
                         let dest_ptr = self.force_allocation(lval)?.to_ptr();
 
+                        let usize_bytes = self.memory.pointer_size();
+
                         // FIXME make this more robust
-                        self.memory.write_uint(dest_ptr, 0, 8)?; // discriminant = Ok
-                        self.memory.write_uint(dest_ptr.offset(8), num_bytes, 8)?; // payload
+                        self.memory.write_uint(dest_ptr, 0, usize_bytes)?; // discriminant = Ok
+                        self.memory.write_uint(
+                            dest_ptr.offset(usize_bytes), num_bytes, usize_bytes)?; // payload
 
                         self.goto_block(block);
                         return Ok(true);
