@@ -57,9 +57,9 @@ Seer will then attempt to find input values that can trigger the panic.
 It succeeds after a few seconds:
 
 ```
-$ cargo run --bin run_symbolic -- example/standalone/base64.rs
+$ cargo run --bin seer -- example/standalone/base64.rs
     Finished dev [unoptimized + debuginfo] target(s) in 0.0 secs
-     Running `target/debug/run_symbolic example/standalone/base64.rs`
+     Running `target/debug/seer example/standalone/base64.rs`
 ExecutionComplete { input: [104, 101, 108, 108, 111, 32, 119, 111, 114, 108, 100, 33], result: Err(Panic) }
 as string: Ok("hello world!")
 hit an error. halting

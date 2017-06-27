@@ -21,7 +21,7 @@ fn expect_panics(filename: &str, mut expected_results: Vec<Vec<u8>>) {
         }
     };
 
-    let args = vec!["run_symbolic".to_string(), filename.to_string()];
+    let args = vec!["seer".to_string(), filename.to_string()];
     ::seer::ExecutionConfig::new()
         .consumer(consumer)
         .run(args);
