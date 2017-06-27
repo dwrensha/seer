@@ -3,6 +3,23 @@ extern crate env_logger;
 extern crate log_settings;
 extern crate log;
 
+const SEER_HELP: &str = r#"Attempts to find all possible execution paths in a program.
+
+Usage:
+    seer <opts>
+
+The options are passed to rustc.
+"#;
+
+
+fn show_help() {
+    println!("{}", SEER_HELP);
+}
+
+fn show_version() {
+    println!("{}", env!("CARGO_PKG_VERSION"));
+}
+
 fn init_logger() {
     let format = |record: &log::LogRecord| {
         if record.level() == log::LogLevel::Trace {
@@ -38,6 +55,16 @@ fn init_logger() {
 
 fn main() {
     let mut args: Vec<String> = ::std::env::args().collect();
+
+   if args.iter().any(|a| a == "--version" || a == "-V") {
+        show_version();
+        return;
+    }
+
+   if args.iter().any(|a| a == "--help" || a == "-h") {
+        show_help();
+        return;
+   }
 
     init_logger();
     let consumer = |complete: ::seer::ExecutionComplete | {
