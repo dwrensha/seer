@@ -37,6 +37,8 @@ fn init_logger() {
 }
 
 fn main() {
+    let mut args: Vec<String> = ::std::env::args().collect();
+
     init_logger();
     let consumer = |complete: ::seer::ExecutionComplete | {
         println!("{:?}", complete);
@@ -49,7 +51,21 @@ fn main() {
         }
     };
 
-    ::seer::ExecutionConfig::new()
-        .consumer(consumer)
-        .run(::std::env::args().collect());
+    let mut config = ::seer::ExecutionConfig::new();
+
+    let mut emit_error_idx = None;
+    for (idx, arg) in args.iter().enumerate() {
+        if arg == "--emit-error" {
+            emit_error_idx = Some(idx);
+            break;
+        }
+    }
+    if let Some(idx) = emit_error_idx {
+        config.emit_error(true);
+        args.remove(idx);
+    } else {
+        config.consumer(consumer);
+    }
+
+    config.run(args);
 }

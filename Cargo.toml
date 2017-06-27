@@ -8,13 +8,7 @@ version = "0.0.1"
 
 [[bin]]
 doc = false
-name = "run_main"
-test = false
-
-[[bin]]
-doc = false
-name = "run_symbolic"
-test = false
+name = "seer"
 
 [dependencies]
 
