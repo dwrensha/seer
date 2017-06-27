@@ -715,12 +715,14 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     unimplemented!();
                 }
 
+                let usize_bytes = self.memory.pointer_size();
+
                 // FIXME make this more robust
-                self.memory.write_uint(dest_ptr, 1, 8)?; // discriminant = Some
+                self.memory.write_uint(dest_ptr, 1, usize_bytes)?; // discriminant = Some
 
                 // payload
-                self.memory.write_uint(dest_ptr.offset(8), size, 8)?;
-                self.memory.write_uint(dest_ptr.offset(16), align, 8)?;
+                self.memory.write_uint(dest_ptr.offset(usize_bytes), size, usize_bytes)?;
+                self.memory.write_uint(dest_ptr.offset(usize_bytes * 2), align, usize_bytes)?;
 
                 self.goto_block(block);
                 return Ok(());
@@ -729,10 +731,12 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 let (lval, block) = destination.expect("alloc_zeroed() does not diverge");
                 let dest_ptr = self.force_allocation(lval)?.to_ptr();
 
+                let usize_bytes = self.memory.pointer_size();
+
                 let (size, align) = match args[1] {
                     Value::ByRef(ptr) => {
-                        (self.memory.read_uint(ptr, 8)?.to_u64()?,
-                         self.memory.read_uint(ptr.offset(8), 8)?.to_u64()?)
+                        (self.memory.read_uint(ptr, usize_bytes)?.to_u64()?,
+                         self.memory.read_uint(ptr.offset(usize_bytes), usize_bytes)?.to_u64()?)
                     }
                     Value::ByValPair(_size, _align) => {
                         unimplemented!()
@@ -743,8 +747,8 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 let ptr = self.memory.allocate(size, align)?;
                 self.memory.write_repeat(ptr, 0, size)?;
 
-                self.memory.write_uint(dest_ptr, 0, 8)?; // discriminant = Ok
-                self.memory.write_ptr(dest_ptr.offset(8), ptr)?;
+                self.memory.write_uint(dest_ptr, 0, usize_bytes)?; // discriminant = Ok
+                self.memory.write_ptr(dest_ptr.offset(usize_bytes), ptr)?;
 
                 self.goto_block(block);
                 return Ok(());
@@ -754,10 +758,12 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 let (lval, block) = destination.expect("alloc() does not diverge");
                 let dest_ptr = self.force_allocation(lval)?.to_ptr();
 
+                let usize_bytes = self.memory.pointer_size();
+
                 let (size, align) = match args[1] {
                     Value::ByRef(ptr) => {
-                        (self.memory.read_uint(ptr, 8)?.to_u64()?,
-                         self.memory.read_uint(ptr.offset(8), 8)?.to_u64()?)
+                        (self.memory.read_uint(ptr, usize_bytes)?.to_u64()?,
+                         self.memory.read_uint(ptr.offset(usize_bytes), usize_bytes)?.to_u64()?)
                     }
                     Value::ByValPair(_size, _align) => {
                         unimplemented!()
@@ -767,8 +773,8 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
 
                 let ptr = self.memory.allocate(size, align)?;
 
-                self.memory.write_uint(dest_ptr, 0, 8)?; // discriminant = Ok
-                self.memory.write_ptr(dest_ptr.offset(8), ptr)?;
+                self.memory.write_uint(dest_ptr, 0, usize_bytes)?; // discriminant = Ok
+                self.memory.write_ptr(dest_ptr.offset(usize_bytes), ptr)?;
 
                 self.goto_block(block);
                 return Ok(());
@@ -777,9 +783,10 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             "alloc::allocator::Layout::size" => {
                 let (lval, block) = destination.expect("size() does not diverge");
 
+                let usize_bytes = self.memory.pointer_size();
                 let self_size = match args[0] {
                     Value::ByVal(PrimVal::Ptr(ptr)) => {
-                        self.memory.read_uint(ptr, 8)?.to_u64()?
+                        self.memory.read_uint(ptr, usize_bytes)?.to_u64()?
                     }
                     _ => unreachable!(),
                 };
@@ -793,10 +800,11 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 let (lval, block) = destination.expect("repeat() does not diverge");
                 let dest_ptr = self.force_allocation(lval)?.to_ptr();
 
+                let usize_bytes = self.memory.pointer_size();
                 let (self_size, self_align) = match args[0] {
                     Value::ByVal(PrimVal::Ptr(ptr)) => {
-                        (self.memory.read_uint(ptr, 8)?.to_u64()?,
-                         self.memory.read_uint(ptr.offset(8), 8)?.to_u64()?)
+                        (self.memory.read_uint(ptr, usize_bytes)?.to_u64()?,
+                         self.memory.read_uint(ptr.offset(usize_bytes), usize_bytes)?.to_u64()?)
                     }
                     _ => unreachable!(),
                 };
@@ -820,12 +828,15 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     Some(alloc_size) => alloc_size,
                 };
 
-                self.memory.write_uint(dest_ptr, 1, 8)?; // discriminant = Some
+                let usize_bytes = self.memory.pointer_size();
+
+                self.memory.write_uint(dest_ptr, 1, usize_bytes)?; // discriminant = Some
 
                 // payload
-                self.memory.write_uint(dest_ptr.offset(8), alloc_size as u128, 8)?;
-                self.memory.write_uint(dest_ptr.offset(16), self_align as u128, 8)?;
-                self.memory.write_uint(dest_ptr.offset(24), padded_size as u128, 8)?;
+                self.memory.write_uint(dest_ptr.offset(usize_bytes), alloc_size as u128, usize_bytes)?;
+                self.memory.write_uint(dest_ptr.offset(usize_bytes * 2), self_align as u128, usize_bytes)?;
+                self.memory.write_uint(
+                    dest_ptr.offset(usize_bytes * 3), padded_size as u128, usize_bytes)?;
 
                 self.goto_block(block);
                 return Ok(());
@@ -841,18 +852,19 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     _ => unimplemented!(),
                 };
 
+                let usize_bytes = self.memory.pointer_size();
                 let (new_size, new_align) = match args[3] {
                     Value::ByRef(ptr) => {
-                        (self.memory.read_uint(ptr, 8)?.to_u64()?,
-                         self.memory.read_uint(ptr.offset(8), 8)?.to_u64()?)
+                        (self.memory.read_uint(ptr, usize_bytes)?.to_u64()?,
+                         self.memory.read_uint(ptr.offset(usize_bytes), usize_bytes)?.to_u64()?)
                     }
                     _ => unimplemented!(),
                 };
 
                 let new_ptr = self.memory.reallocate(ptr, new_size, new_align)?;
 
-                self.memory.write_uint(dest_ptr, 0, 8)?; // discriminant = Ok
-                self.memory.write_ptr(dest_ptr.offset(8), new_ptr)?;
+                self.memory.write_uint(dest_ptr, 0, usize_bytes)?; // discriminant = Ok
+                self.memory.write_ptr(dest_ptr.offset(usize_bytes), new_ptr)?;
 
                 self.goto_block(block);
                 return Ok(());

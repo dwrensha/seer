@@ -1,6 +1,8 @@
 language: rust
 rust:
   - nightly
+before_script:
+- rustup target add i686-unknown-linux-gnu
 os:
   - linux
 addons:
