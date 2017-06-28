@@ -33,10 +33,7 @@ Common options:
 
 Other options are the same as `cargo rustc`.
 
-The feature `cargo-seer` is automatically defined for convenience. You can use
-it to allow or deny lints from the code, eg.:
-
-    #[cfg_attr(feature = "cargo-seer", allow(needless_lifetimes))]
+The feature `cargo-seer` is automatically defined for convenience.
 "#;
 
 fn show_help() {
