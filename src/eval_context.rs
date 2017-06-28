@@ -908,11 +908,10 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         lvalue: Lvalue<'tcx>,
     ) -> EvalResult<'tcx, Lvalue<'tcx>> {
         let new_lvalue = match lvalue {
-            Lvalue::Local { frame, local, field } => {
+            Lvalue::Local { frame, local } => {
                 // -1 since we don't store the return value
                 match self.stack[frame].locals[local.index() - 1] {
                     Value::ByRef(ptr) => {
-                        assert!(field.is_none());
                         Lvalue::from_ptr(ptr)
                     },
                     val => {
@@ -922,12 +921,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                         let ptr = self.alloc_ptr_with_substs(ty, substs)?;
                         self.stack[frame].locals[local.index() - 1] = Value::ByRef(ptr);
                         self.write_value_to_ptr(val, ptr, ty)?;
-                        let lval = Lvalue::from_ptr(ptr);
-                        if let Some((field, field_ty)) = field {
-                            self.lvalue_field(lval, field, ty, field_ty)?
-                        } else {
-                            lval
-                        }
+                        Lvalue::from_ptr(ptr)
                     }
                 }
             }
@@ -1013,11 +1007,11 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 self.write_value_to_ptr(src_val, ptr, dest_ty)
             }
 
-            Lvalue::Local { frame, local, field } => {
-                let dest = self.stack[frame].get_local(local, field.map(|(i, _)| i));
+            Lvalue::Local { frame, local } => {
+                let dest = self.stack[frame].get_local(local);
                 self.write_value_possibly_by_val(
                     src_val,
-                    |this, val| this.stack[frame].set_local(local, field.map(|(i, _)| i), val),
+                    |this, val| this.stack[frame].set_local(local, val),
                     dest,
                     dest_ty,
                 )
@@ -1430,19 +1424,16 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
     }
 
     pub(super) fn dump_local(&self, lvalue: Lvalue<'tcx>) {
-        if let Lvalue::Local { frame, local, field } = lvalue {
+        if let Lvalue::Local { frame, local } = lvalue {
             let mut allocs = Vec::new();
             let mut msg = format!("{:?}", local);
-            if let Some((field, _)) = field {
-                write!(msg, ".{}", field).unwrap();
-            }
             let last_frame = self.stack.len() - 1;
             if frame != last_frame {
                 write!(msg, " ({} frames up)", last_frame - frame).unwrap();
             }
             write!(msg, ":").unwrap();
 
-            match self.stack[frame].get_local(local, field.map(|(i, _)| i)) {
+            match self.stack[frame].get_local(local) {
                 Value::ByRef(ptr) => {
                     allocs.push(ptr.alloc_id);
                 }
@@ -1480,14 +1471,13 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         &mut self,
         frame: usize,
         local: mir::Local,
-        field: Option<usize>,
         f: F,
     ) -> EvalResult<'tcx>
         where F: FnOnce(&mut Self, Value) -> EvalResult<'tcx, Value>,
     {
-        let val = self.stack[frame].get_local(local, field);
+        let val = self.stack[frame].get_local(local);
         let new_val = f(self, val)?;
-        self.stack[frame].set_local(local, field, new_val);
+        self.stack[frame].set_local(local, new_val);
         // FIXME(solson): Run this when setting to Undef? (See previous version of this code.)
         // if let Value::ByRef(ptr) = self.stack[frame].get_local(local) {
         //     self.memory.deallocate(ptr)?;
@@ -1497,53 +1487,14 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
 }
 
 impl<'tcx> Frame<'tcx> {
-    pub fn get_local(&self, local: mir::Local, field: Option<usize>) -> Value {
+    pub fn get_local(&self, local: mir::Local) -> Value {
         // Subtract 1 because we don't store a value for the ReturnPointer, the local with index 0.
-        if let Some(field) = field {
-            match self.locals[local.index() - 1] {
-                Value::ByRef(_) => bug!("can't have lvalue fields for ByRef"),
-                val @ Value::ByVal(_) => {
-                    assert_eq!(field, 0);
-                    val
-                },
-                Value::ByValPair(a, b) => {
-                    match field {
-                        0 => Value::ByVal(a),
-                        1 => Value::ByVal(b),
-                        _ => bug!("ByValPair has only two fields, tried to access {}", field),
-                    }
-                },
-            }
-        } else {
-            self.locals[local.index() - 1]
-        }
+        self.locals[local.index() - 1]
     }
 
-    fn set_local(&mut self, local: mir::Local, field: Option<usize>, value: Value) {
+    fn set_local(&mut self, local: mir::Local, value: Value) {
         // Subtract 1 because we don't store a value for the ReturnPointer, the local with index 0.
-        if let Some(field) = field {
-            match self.locals[local.index() - 1] {
-                Value::ByRef(_) => bug!("can't have lvalue fields for ByRef"),
-                Value::ByVal(_) => {
-                    assert_eq!(field, 0);
-                    self.set_local(local, None, value);
-                },
-                Value::ByValPair(a, b) => {
-                    let prim = match value {
-                        Value::ByRef(_) => bug!("can't set ValPair field to ByRef"),
-                        Value::ByVal(val) => val,
-                        Value::ByValPair(_, _) => bug!("can't set ValPair field to ValPair"),
-                    };
-                    match field {
-                        0 => self.set_local(local, None, Value::ByValPair(prim, b)),
-                        1 => self.set_local(local, None, Value::ByValPair(a, prim)),
-                        _ => bug!("ByValPair has only two fields, tried to access {}", field),
-                    }
-                },
-            }
-        } else {
-            self.locals[local.index() - 1] = value;
-        }
+        self.locals[local.index() - 1] = value;
     }
 }
 
