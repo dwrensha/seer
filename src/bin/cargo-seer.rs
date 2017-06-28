@@ -1,4 +1,4 @@
-// This code in this file is based on cargo-clippy, which is licensed under
+// The code in this file is based on cargo-clippy, which is licensed under
 // the [Mozilla Public License, 2.0](https://www.mozilla.org/MPL/2.0/).
 // See https://github.com/Manishearth/rust-clippy.
 
