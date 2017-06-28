@@ -1,13 +1,11 @@
-Build with:
+Install cargo-seer:
 
 ```
-RUSTFLAGS="-Z always-encode-mir" cargo build
+cargo install seer --git https://github.com/dwrensha/seer
 ```
 
-Then in the seer top-level directory:
+Then run seer in this directory, with:
 
 ```
-cargo run --bin seer --  -L dependency=./example/base64/target/debug/deps --extern base64=./example/base64/target/debug/deps/libbase64-671f71aca8a0bd16.rlib  ./example/base64/src/main.rs
+cargo seer
 ```
-
-(You'll probably need to adjust the hash on the rlib.)

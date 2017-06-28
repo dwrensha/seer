@@ -1,13 +1,11 @@
-Build with:
+Install cargo-seer:
 
 ```
-RUSTFLAGS="-Z always-encode-mir" cargo build
+cargo install seer --git https://github.com/dwrensha/seer
 ```
 
-Then in the seer top-level directory:
+Then run seer in this directory, with:
 
 ```
-cargo run --bin seer --  -L dependency=./example/httparse/target/debug/deps --extern httparse=./example/httparse/target/debug/deps/libhttparse-f07a346cf686d3f4.rlib  ./example/httparse/src/main.rs
+cargo seer
 ```
-
-(You'll probably need to adjust the hash on the rlib.)
