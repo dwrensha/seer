@@ -10,6 +10,10 @@ version = "0.0.1"
 doc = false
 name = "seer"
 
+[[bin]]
+doc = false
+name = "cargo-seer"
+
 [dependencies]
 
 # horrible hack: we vendor byteorder so that we can publish on crates.io
