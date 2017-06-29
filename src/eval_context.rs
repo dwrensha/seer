@@ -684,7 +684,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     }
 
                     ReifyFnPointer => match self.operand_ty(operand).sty {
-                        ty::TyFnDef(def_id, substs, _) => {
+                        ty::TyFnDef(def_id, substs) => {
                             let instance = resolve(self.tcx, def_id, substs);
                             let fn_ptr = self.memory.create_fn_alloc(instance);
                             self.write_value(Value::ByVal(PrimVal::Ptr(fn_ptr)), dest, dest_ty)?;
@@ -1577,7 +1577,7 @@ fn fn_once_adapter_instance<'a, 'tcx>(
     let self_ty = tcx.mk_closure_from_closure_substs(
         closure_did, substs);
 
-    let sig = tcx.closure_type(closure_did).subst(tcx, substs.substs);
+    let sig = tcx.fn_sig(closure_did).subst(tcx, substs.substs);
     let sig = tcx.erase_late_bound_regions_and_normalize(&sig);
     assert_eq!(sig.inputs().len(), 1);
     let substs = tcx.mk_substs([
@@ -1638,9 +1638,11 @@ pub fn resolve<'a, 'tcx>(
     } else {
         let item_type = def_ty(tcx, def_id, substs);
         let def = match item_type.sty {
-            ty::TyFnDef(_, _, f) if
-                f.abi() == Abi::RustIntrinsic ||
-                f.abi() == Abi::PlatformIntrinsic =>
+            ty::TyFnDef(..) if {
+                    let f = item_type.fn_sig(tcx);
+                    f.abi() == Abi::RustIntrinsic ||
+                    f.abi() == Abi::PlatformIntrinsic
+                } =>
             {
                 debug!(" => intrinsic");
                 ty::InstanceDef::Intrinsic(def_id)
