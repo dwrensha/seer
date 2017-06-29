@@ -6,7 +6,6 @@
 
 #![feature(rustc_private)]
 
-extern crate getopts;
 extern crate rustc_driver;
 extern crate seer;
 
