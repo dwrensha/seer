@@ -7,11 +7,7 @@
 #![feature(rustc_private)]
 
 extern crate getopts;
-extern crate rustc;
 extern crate rustc_driver;
-extern crate rustc_errors;
-extern crate rustc_plugin;
-extern crate syntax;
 extern crate seer;
 
 use rustc_driver::{RustcDefaultCalls};
