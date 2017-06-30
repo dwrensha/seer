@@ -19,7 +19,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         match val {
             PrimVal::Abstract(mut sbytes) => {
                 let dest_kind = self.ty_to_primval_kind(dest_ty)?;
-                if kind.is_int() && dest_kind.is_int() {
+                if (kind.is_int() || kind == Char) && (dest_kind.is_int() || kind == Char) {
                     let src_size = kind.num_bytes();
                     let dest_size = dest_kind.num_bytes();
                     for idx in dest_size .. src_size {
@@ -29,14 +29,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     // the value concrete.
                     Ok(PrimVal::Abstract(sbytes))
                 } else {
-                    match (kind, dest_kind) {
-                        (U8, Char) => {
-                            Ok(PrimVal::Abstract(sbytes))
-                        }
-                        _ => {
-                            unimplemented!()
-                        }
-                    }
+                    unimplemented!()
                 }
             }
             _ => {
