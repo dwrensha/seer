@@ -14,4 +14,4 @@ RUSTFLAGS="-Z always-encode-mir" xargo seer --target x86_64-apple-darwin
 ```
 
 (We need to set `--target` so that the proc_macro stuff in the
-fuzzy-pickles-derive crate works. See see https://github.com/japaric/xargo/issues/125.)
+fuzzy-pickles-derive crate works. See https://github.com/japaric/xargo/issues/125.)
