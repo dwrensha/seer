@@ -1194,7 +1194,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         match ty.sty {
             ty::TyBool if val.is_concrete() && val.to_bytes()? > 1 => Err(EvalError::InvalidBool),
 
-            ty::TyChar if ::std::char::from_u32(val.to_bytes()? as u32).is_none()
+            ty::TyChar if val.is_concrete() && ::std::char::from_u32(val.to_bytes()? as u32).is_none()
                 => Err(EvalError::InvalidChar(val.to_bytes()? as u32 as u128)),
 
             _ => Ok(()),
@@ -1243,6 +1243,10 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                             Some(ch) => PrimVal::from_char(ch),
                             None => return Err(EvalError::InvalidChar(b as u128)),
                         }
+                    }
+                    PrimVal::Abstract(sbytes) => {
+                        // TODO handle the InvalidChar case
+                        PrimVal::Abstract(sbytes)
                     }
                     _ => unimplemented!(),
                 }

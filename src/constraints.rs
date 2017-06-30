@@ -465,6 +465,8 @@ impl ConstraintContext {
                     PrimValKind::U32 | PrimValKind::I32 => z3::Ast::bv_from_u64(&ctx, v as u64, 32),
                     PrimValKind::U64 | PrimValKind::I64 => z3::Ast::bv_from_u64(&ctx, v as u64, 64),
 
+                    PrimValKind::Char => z3::Ast::bv_from_u64(&ctx, v as u64, 32),
+
                     _ => {
                         unimplemented!()
                     }

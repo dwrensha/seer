@@ -239,6 +239,7 @@ impl PrimValKind {
             F32 => 4,
             I64 | U64 => 8,
             F64 => 8,
+            Char => 4,
             _ => unimplemented!(),
         }
     }
