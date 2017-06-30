@@ -44,6 +44,9 @@ fn show_version() {
 pub fn main() {
     use std::env;
 
+    let mut stderr = ::std::io::stderr();
+    writeln!(&mut stderr, "raw args: {:?}", env::args().collect::<Vec<String>>()).unwrap();
+
     // Check for version and help flags even when invoked as 'cargo-seer'
     if std::env::args().any(|a| a == "--help" || a == "-h") {
         show_help();
