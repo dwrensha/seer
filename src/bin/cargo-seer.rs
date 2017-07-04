@@ -4,14 +4,6 @@
 //
 // Therefore, unlike the rest of seer, this file is licensed under MPL 2.0.
 
-#![feature(rustc_private)]
-
-extern crate rustc;
-extern crate rustc_driver;
-extern crate seer;
-
-use rustc_driver::{RustcDefaultCalls};
-use rustc::session::{CompileIncomplete};
 use std::path::PathBuf;
 use std::process::{self, Command};
 use std::io::{self, Write};
@@ -135,53 +127,42 @@ pub fn main() {
                 .expect("need to specify SYSROOT env var during seer compilation, or use rustup or multirust")
         };
 
-        rustc_driver::in_rustc_thread(|| {
-            // this conditional check for the --sysroot flag is there so users can call
-            // `cargo-seer` directly
-            // without having to pass --sysroot or anything
-            let mut args: Vec<String> = if env::args().any(|s| s == "--sysroot") {
-                env::args().collect()
-            } else {
-                env::args()
-                    .chain(Some("--sysroot".to_owned()))
-                    .chain(Some(sys_root))
-                    .collect()
-            };
+        // this conditional check for the --sysroot flag is there so users can call
+        // `cargo-seer` directly
+        // without having to pass --sysroot or anything
+        let mut args: Vec<String> = if env::args().any(|s| s == "--sysroot") {
+            env::args().skip(1).collect()
+        } else {
+            env::args()
+                .skip(1)
+                .chain(Some("--sysroot".to_owned()))
+                .chain(Some(sys_root))
+                .collect()
+        };
 
+        args.extend_from_slice(&["--cfg".to_owned(), r#"feature="cargo-seer""#.to_owned()]);
+        args.extend_from_slice(&["-Z".to_owned(), "always-encode-mir".to_owned()]);
 
-            args.extend_from_slice(&["--cfg".to_owned(), r#"feature="cargo-seer""#.to_owned()]);
+        // this check ensures that dependencies are built but not linted and the final
+        // crate is
+        // linted but not built
+        let seer_enabled = env::args().any(|s| s == "-Zno-trans");
 
-            args.extend_from_slice(&["-Z".to_owned(), "always-encode-mir".to_owned()]);
+        let mut command = if seer_enabled {
+            let mut path = std::env::current_exe().expect("current executable path invalid");
+            path.set_file_name("seer");
+            Command::new(path)
+        } else {
+            Command::new("rustc")
+        };
 
-            // this check ensures that dependencies are built but not linted and the final
-            // crate is
-            // linted but not built
-            let seer_enabled = env::args().any(|s| s == "-Zno-trans");
-
-            if seer_enabled {
-                let consumer = |complete: ::seer::ExecutionComplete | {
-                    println!("{:?}", complete);
-                    println!("as string: {:?}", ::std::str::from_utf8(&complete.input));
-                    if let Err(_) = complete.result {
-                        println!("hit an error. halting");
-                        false
-                    } else {
-                        true
-                    }
-                };
-
-                ::seer::ExecutionConfig::new()
-                    .emit_error(false)
-                    .consumer(consumer)
-                    .run(args);
-            } else {
-                let mut rdc = RustcDefaultCalls;
-                let (result, _) = rustc_driver::run_compiler(&args, &mut rdc, None, None);
-                if let Err(CompileIncomplete::Errored(_)) = result {
-                    std::process::exit(1);
-                }
-            }
-        }).expect("rustc_thread failed");
+        match command.args(&args).status() {
+            Ok(exit) => if !exit.success() {
+                std::process::exit(exit.code().unwrap_or(42));
+            },
+            Err(ref e) if seer_enabled => panic!("error during seer run: {:?}", e),
+            Err(ref e) => panic!("error during rustc call: {:?}", e),
+        }
     }
 }
 
