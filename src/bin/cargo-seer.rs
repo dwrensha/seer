@@ -6,10 +6,12 @@
 
 #![feature(rustc_private)]
 
+extern crate rustc;
 extern crate rustc_driver;
 extern crate seer;
 
 use rustc_driver::{RustcDefaultCalls};
+use rustc::session::{CompileIncomplete};
 use std::path::PathBuf;
 use std::process::{self, Command};
 use std::io::{self, Write};
@@ -175,10 +177,8 @@ pub fn main() {
             } else {
                 let mut rdc = RustcDefaultCalls;
                 let (result, _) = rustc_driver::run_compiler(&args, &mut rdc, None, None);
-                if let Err(err_count) = result {
-                    if err_count > 0 {
-                        std::process::exit(1);
-                    }
+                if let Err(CompileIncomplete::Errored(_)) = result {
+                    std::process::exit(1);
                 }
             }
         }).expect("rustc_thread failed");
