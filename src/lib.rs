@@ -21,8 +21,8 @@ extern crate syntax;
 
 // From crates.io.
 extern crate seer_z3 as z3;
+extern crate byteorder;
 
-pub mod byteorder;
 mod cast;
 mod constraints;
 mod error;
