@@ -117,6 +117,11 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             StorageLive(_) |
             StorageDead(_) => {}
 
+            // Validity checks.
+            Validate(_op, ref _lvalues) => {
+                // TODO
+            }
+
             EndRegion(..) => {}
 
             // Defined to do nothing. These are added by optimization passes, to avoid changing the

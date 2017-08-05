@@ -385,6 +385,6 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
     }
 
     pub(super) fn lvalue_ty(&self, lvalue: &mir::Lvalue<'tcx>) -> Ty<'tcx> {
-        self.monomorphize(lvalue.ty(&self.mir(), self.tcx).to_ty(self.tcx), self.substs())
+        self.monomorphize(lvalue.ty(self.mir(), self.tcx).to_ty(self.tcx), self.substs())
     }
 }
