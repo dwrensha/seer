@@ -884,41 +884,6 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         let usize = self.tcx.types.usize;
 
         match &link_name[..] {
-            "__rust_allocate" => {
-                let size = self.value_to_primval(args[0], usize)?.to_u64()?;
-                let align = self.value_to_primval(args[1], usize)?.to_u64()?;
-                let ptr = self.memory.allocate(size, align)?;
-                self.write_primval(dest, PrimVal::Ptr(ptr), dest_ty)?;
-                self.goto_block(target);
-            }
-
-            "__rust_allocate_zeroed" => {
-                let size = self.value_to_primval(args[0], usize)?.to_u64()?;
-                let align = self.value_to_primval(args[1], usize)?.to_u64()?;
-                let ptr = self.memory.allocate(size, align)?;
-                self.memory.write_repeat(ptr, 0, size)?;
-                self.write_primval(dest, PrimVal::Ptr(ptr), dest_ty)?;
-                self.goto_block(target);
-            }
-
-            "__rust_deallocate" => {
-                let ptr = args[0].read_ptr(&self.memory)?;
-                // FIXME: insert sanity check for size and align?
-                let _old_size = self.value_to_primval(args[1], usize)?.to_u64()?;
-                let _align = self.value_to_primval(args[2], usize)?.to_u64()?;
-                self.memory.deallocate(ptr)?;
-                self.goto_block(target);
-            },
-
-            "__rust_reallocate" => {
-                let ptr = args[0].read_ptr(&self.memory)?;
-                let size = self.value_to_primval(args[2], usize)?.to_u64()?;
-                let align = self.value_to_primval(args[3], usize)?.to_u64()?;
-                let new_ptr = self.memory.reallocate(ptr, size, align)?;
-                self.write_primval(dest, PrimVal::Ptr(new_ptr), dest_ty)?;
-                self.goto_block(target);
-            }
-
             "memcmp" => {
                 let left = args[0].read_ptr(&self.memory)?;
                 let right = args[1].read_ptr(&self.memory)?;
