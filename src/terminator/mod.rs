@@ -732,55 +732,32 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 self.goto_block(block);
                 return Ok(());
             }
-            "<alloc::heap::HeapAlloc as alloc::allocator::Alloc>::alloc_zeroed" => {
-                let (lval, block) = destination.expect("alloc_zeroed() does not diverge");
+
+            "alloc::heap::::__rust_alloc" => {
+                let usize = self.tcx.types.usize;
+                let size = self.value_to_primval(args[0], usize)?.to_u64()?;
+                let align = self.value_to_primval(args[1], usize)?.to_u64()?;
+                let ptr = self.memory.allocate(size, align)?;
+
+                let (lval, block) = destination.expect("alloc() does not diverge");
                 let dest_ptr = self.force_allocation(lval)?.to_ptr();
 
-                let usize_bytes = self.memory.pointer_size();
-
-                let (size, align) = match args[1] {
-                    Value::ByRef(ptr) => {
-                        (self.memory.read_uint(ptr, usize_bytes)?.to_u64()?,
-                         self.memory.read_uint(ptr.offset(usize_bytes), usize_bytes)?.to_u64()?)
-                    }
-                    Value::ByValPair(_size, _align) => {
-                        unimplemented!()
-                    }
-                    Value::ByVal(_) => unreachable!(),
-                };
-
-                let ptr = self.memory.allocate(size, align)?;
-                self.memory.write_repeat(ptr, 0, size)?;
-
-                self.memory.write_uint(dest_ptr, 0, usize_bytes)?; // discriminant = Ok
-                self.memory.write_ptr(dest_ptr.offset(usize_bytes), ptr)?;
-
+                self.memory.write_ptr(dest_ptr, ptr)?;
                 self.goto_block(block);
                 return Ok(());
             }
 
-            "<alloc::heap::HeapAlloc as alloc::allocator::Alloc>::alloc" => {
+            "alloc::heap::::__rust_alloc_zeroed" => {
+                let usize = self.tcx.types.usize;
+                let size = self.value_to_primval(args[0], usize)?.to_u64()?;
+                let align = self.value_to_primval(args[1], usize)?.to_u64()?;
+                let ptr = self.memory.allocate(size, align)?;
+                self.memory.write_repeat(ptr, 0, size)?;
+
                 let (lval, block) = destination.expect("alloc() does not diverge");
                 let dest_ptr = self.force_allocation(lval)?.to_ptr();
 
-                let usize_bytes = self.memory.pointer_size();
-
-                let (size, align) = match args[1] {
-                    Value::ByRef(ptr) => {
-                        (self.memory.read_uint(ptr, usize_bytes)?.to_u64()?,
-                         self.memory.read_uint(ptr.offset(usize_bytes), usize_bytes)?.to_u64()?)
-                    }
-                    Value::ByValPair(_size, _align) => {
-                        unimplemented!()
-                    }
-                    Value::ByVal(_) => unreachable!(),
-                };
-
-                let ptr = self.memory.allocate(size, align)?;
-
-                self.memory.write_uint(dest_ptr, 0, usize_bytes)?; // discriminant = Ok
-                self.memory.write_ptr(dest_ptr.offset(usize_bytes), ptr)?;
-
+                self.memory.write_ptr(dest_ptr, ptr)?;
                 self.goto_block(block);
                 return Ok(());
             }
@@ -847,38 +824,31 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 return Ok(());
             }
 
-            "<alloc::heap::HeapAlloc as alloc::allocator::Alloc>::realloc" => {
+            "alloc::heap::::__rust_realloc" => {
                 let (lval, block) = destination.expect("realloc() does not diverge");
                 let dest_ptr = self.force_allocation(lval)?.to_ptr();
 
-
-                let ptr = match args[1] {
+                let ptr = match args[0] {
                     Value::ByVal(PrimVal::Ptr(p)) => p,
                     _ => unimplemented!(),
                 };
 
-                let usize_bytes = self.memory.pointer_size();
-                let (new_size, new_align) = match args[3] {
-                    Value::ByRef(ptr) => {
-                        (self.memory.read_uint(ptr, usize_bytes)?.to_u64()?,
-                         self.memory.read_uint(ptr.offset(usize_bytes), usize_bytes)?.to_u64()?)
-                    }
-                    _ => unimplemented!(),
-                };
+                let usize = self.tcx.types.usize;
+                let _old_size = self.value_to_primval(args[1], usize)?.to_u64()?;
+                let _old_align = self.value_to_primval(args[2], usize)?.to_u64()?;
+                let new_size = self.value_to_primval(args[3], usize)?.to_u64()?;
+                let new_align = self.value_to_primval(args[4], usize)?.to_u64()?;
 
                 let new_ptr = self.memory.reallocate(ptr, new_size, new_align)?;
-
-                self.memory.write_uint(dest_ptr, 0, usize_bytes)?; // discriminant = Ok
-                self.memory.write_ptr(dest_ptr.offset(usize_bytes), new_ptr)?;
-
+                self.memory.write_ptr(dest_ptr, new_ptr)?;
                 self.goto_block(block);
                 return Ok(());
             }
 
-            "<alloc::heap::HeapAlloc as alloc::allocator::Alloc>::dealloc" => {
+            "alloc::heap::::__rust_dealloc" => {
                 let (_lval, block) = destination.expect("dealloc() does not diverge");
 
-                let ptr = match args[1] {
+                let ptr = match args[0] {
                     Value::ByVal(PrimVal::Ptr(p)) => p,
                     _ => unimplemented!(),
                 };
