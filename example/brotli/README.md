@@ -13,5 +13,5 @@ Then run seer in this directory, with:
 RUSTFLAGS="-Z always-encode-mir" xargo seer
 ```
 
-(It's weird that wee need to set RUSTFLAGS like that, because
+(It's weird that we need to set RUSTFLAGS like that, because
 cargo-seer should already handle it. Is this a bug in xargo?)
