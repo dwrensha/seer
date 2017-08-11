@@ -1302,7 +1302,7 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
         if size == 0 {
             return Ok(())
         }
-        let mut alloc = self.get_mut(ptr.alloc_id)?;
+        let alloc = self.get_mut(ptr.alloc_id)?;
         match ptr.offset {
             PointerOffset::Concrete(offset) => {
                 alloc.undef_mask.set_range(offset, offset + size, new_state);

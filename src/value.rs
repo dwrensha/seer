@@ -1,6 +1,3 @@
-#![allow(unknown_lints)]
-#![allow(float_cmp)]
-
 use std::mem::transmute;
 
 use error::{EvalError, EvalResult};
