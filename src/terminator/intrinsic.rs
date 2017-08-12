@@ -44,10 +44,10 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
 
 
             "arith_offset" => {
+                let offset = self.value_to_primval(arg_vals[1], isize)?.to_i128()? as i64;
                 let ptr = arg_vals[0].read_ptr(&self.memory)?;
-                let offset = self.value_to_primval(arg_vals[1], isize)?.to_i128()?;
-                let new_ptr = ptr.signed_offset(offset as i64);
-                self.write_primval(dest, PrimVal::Ptr(new_ptr), dest_ty)?;
+                let result_ptr = self.wrapping_pointer_offset(ptr, substs.type_at(0), offset)?;
+                self.write_primval(dest, result_ptr, dest_ty)?;
             }
 
             "assume" => {
@@ -61,7 +61,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             "atomic_load_acq" |
             "volatile_load" => {
                 let ty = instance.substs.type_at(0);
-                let ptr = arg_vals[0].read_ptr(&self.memory)?;
+                let ptr = arg_vals[0].read_ptr(&self.memory)?.to_ptr()?;
                 self.write_value(Value::ByRef(ptr), dest, ty)?;
             }
 
@@ -80,7 +80,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
 
             _ if intrinsic_name.starts_with("atomic_xchg") => {
                 let ty = instance.substs.type_at(0);
-                let ptr = arg_vals[0].read_ptr(&self.memory)?;
+                let ptr = arg_vals[0].read_ptr(&self.memory)?.to_ptr()?;
                 let change = self.value_to_primval(arg_vals[1], ty)?;
                 let old = self.read_value(ptr, ty)?;
                 let old = match old {
@@ -94,7 +94,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
 
             _ if intrinsic_name.starts_with("atomic_cxchg") => {
                 let ty = instance.substs.type_at(0);
-                let ptr = arg_vals[0].read_ptr(&self.memory)?;
+                let ptr = arg_vals[0].read_ptr(&self.memory)?.to_ptr()?;
                 let expect_old = self.value_to_primval(arg_vals[1], ty)?;
                 let change = self.value_to_primval(arg_vals[2], ty)?;
                 let old = self.read_value(ptr, ty)?;
@@ -104,7 +104,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     Value::ByValPair(..) => bug!("atomic_cxchg doesn't work with nonprimitives"),
                 };
                 let (val, _) = self.binary_op(mir::BinOp::Eq, old, ty, expect_old, ty)?;
-                let dest = self.force_allocation(dest)?.to_ptr();
+                let dest = self.force_allocation(dest)?.to_ptr()?;
                 self.write_pair_to_ptr(old, val, dest, dest_ty)?;
                 self.write_primval(Lvalue::from_ptr(ptr), change, ty)?;
             }
@@ -115,7 +115,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             "atomic_xadd" | "atomic_xadd_acq" | "atomic_xadd_rel" | "atomic_xadd_acqrel" | "atomic_xadd_relaxed" |
             "atomic_xsub" | "atomic_xsub_acq" | "atomic_xsub_rel" | "atomic_xsub_acqrel" | "atomic_xsub_relaxed" => {
                 let ty = instance.substs.type_at(0);
-                let ptr = arg_vals[0].read_ptr(&self.memory)?;
+                let ptr = arg_vals[0].read_ptr(&self.memory)?.to_ptr()?;
                 let change = self.value_to_primval(arg_vals[1], ty)?;
                 let old = self.read_value(ptr, ty)?;
                 let old = match old {
@@ -164,7 +164,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
 
             "discriminant_value" => {
                 let ty = instance.substs.type_at(0);
-                let adt_ptr = arg_vals[0].read_ptr(&self.memory)?;
+                let adt_ptr = arg_vals[0].read_ptr(&self.memory)?.to_ptr()?;
                 let discr_val = self.read_discriminant_value(adt_ptr, ty)?;
                 self.write_primval(dest, PrimVal::Bytes(discr_val), dest_ty)?;
             }
@@ -260,7 +260,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 };
                 match dest {
                     Lvalue::Local { frame, local } => self.modify_local(frame, local, init)?,
-                    Lvalue::Ptr { ptr, extra: LvalueExtra::None } => self.memory.write_repeat(ptr, 0, size)?,
+                    Lvalue::Ptr { ptr, extra: LvalueExtra::None } => self.memory.write_repeat(ptr.to_ptr()?, 0, size)?,
                     Lvalue::Ptr { .. } => bug!("init intrinsic tried to write to fat ptr target"),
                     Lvalue::Global(cid) => self.modify_global(cid, init)?,
                 }
@@ -297,12 +297,12 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             "offset" => {
                 let ptr = arg_vals[0].read_ptr(&self.memory)?;
                 let offset_primval = self.value_to_primval(arg_vals[1], isize)?;
-                if offset_primval.is_concrete() && ptr.is_concrete() {
+                if !ptr.is_ptr() || offset_primval.is_concrete() && ptr.to_ptr()?.has_concrete_offset() {
                     let offset = offset_primval.to_i128()? as i64;
                     let result_ptr = self.pointer_offset(ptr, substs.type_at(0), offset)?;
-                    self.write_primval(dest, PrimVal::Ptr(result_ptr), dest_ty)?;
+                    self.write_primval(dest, result_ptr, dest_ty)?;
                 } else {
-                    let ptr_offset_primval = match ptr.offset {
+                    let ptr_offset_primval = match ptr.to_ptr()?.offset {
                         PointerOffset::Concrete(n) => PrimVal::Bytes(n as u128),
                         PointerOffset::Abstract(sbytes) => PrimVal::Abstract(sbytes),
                     };
@@ -322,7 +322,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                         byte_offset,
                         PrimValKind::U64);
                     if let PrimVal::Abstract(sbytes) = new_offset {
-                        let new_ptr = Pointer::new_abstract(ptr.alloc_id, sbytes);
+                        let new_ptr = Pointer::new_abstract(ptr.to_ptr()?.alloc_id, sbytes);
                         self.write_primval(dest, PrimVal::Ptr(new_ptr), dest_ty)?;
                     } else {
                         unreachable!()
@@ -416,9 +416,9 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 let src_ty = substs.type_at(0);
                 let dest_ty = substs.type_at(1);
                 let size = self.type_size(dest_ty)?.expect("transmute() type must be sized");
-                let ptr = self.force_allocation(dest)?.to_ptr();
+                let ptr = self.force_allocation(dest)?.to_ptr()?;
                 self.memory.mark_packed(ptr, size);
-                self.write_value_to_ptr(arg_vals[0], ptr, src_ty)?;
+                self.write_value_to_ptr(arg_vals[0], PrimVal::Ptr(ptr), src_ty)?;
             }
 
             "uninit" => {
@@ -426,7 +426,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 let uninit = |this: &mut Self, val: Value| {
                     match val {
                         Value::ByRef(ptr) => {
-                            this.memory.mark_definedness(ptr, size, false)?;
+                            this.memory.mark_definedness(PrimVal::Ptr(ptr), size, false)?;
                             Ok(Value::ByRef(ptr))
                         },
                         _ => Ok(Value::ByVal(PrimVal::Undef)),
@@ -449,8 +449,11 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 let size = self.type_size(ty)?.expect("write_bytes() type must be sized");
                 let ptr = arg_vals[0].read_ptr(&self.memory)?;
                 let count = self.value_to_primval(arg_vals[2], usize)?.to_u64()?;
-                self.memory.check_align(ptr, ty_align, size * count)?;
-                self.memory.write_repeat(ptr, val_byte, size * count)?;
+                if count > 0 {
+                    let ptr = ptr.to_ptr()?;
+                    self.memory.check_align(ptr, ty_align, size * count)?;
+                    self.memory.write_repeat(ptr, val_byte, size * count)?;
+                }
             }
 
             name => return Err(EvalError::Unimplemented(format!("unimplemented intrinsic: {}", name))),

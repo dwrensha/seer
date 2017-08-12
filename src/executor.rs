@@ -11,7 +11,6 @@ use syntax::codemap::{DUMMY_SP};
 use constraints::Constraint;
 use error::{StaticEvalError, EvalError};
 use lvalue::{Lvalue};
-use memory::{Pointer};
 use eval_context::{EvalContext, Frame, ResourceLimits, StackPopCleanup};
 use value::{PrimVal};
 
@@ -104,7 +103,7 @@ impl <'a, 'tcx: 'a> Executor<'a, 'tcx> {
             instance,
             DUMMY_SP,
             &mir,
-            Lvalue::from_ptr(Pointer::zst_ptr()),
+            Lvalue::undef(),
             StackPopCleanup::None,
         ).expect("could not allocate first stack frame");
 

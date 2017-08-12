@@ -145,51 +145,106 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         use rustc::mir::BinOp::*;
         use value::PrimValKind::*;
 
-        // FIXME(solson): Temporary hack. It will go away when we get rid of Pointer's ability to
-        // store plain bytes, and leave that to PrimVal::Bytes.
-        fn normalize(val: PrimVal) -> PrimVal {
-            if let PrimVal::Ptr(ptr) = val {
-                if let Ok(bytes) = ptr.to_int() {
-                    return PrimVal::Bytes(bytes as u128);
-                }
-            }
-            val
-        }
-        let (left, right) = (normalize(left), normalize(right));
         let left_kind  = self.ty_to_primval_kind(left_ty)?;
         let right_kind = self.ty_to_primval_kind(right_ty)?;
 
-        // Offset is handled early, before we dispatch to
-        // unrelated_ptr_ops. We have to also catch the case where
-        // both arguments *are* convertible to integers.
-        if bin_op == Offset {
-            if left_kind == Ptr && right_kind == PrimValKind::from_uint_size(self.memory.pointer_size()) {
-                let pointee_ty = left_ty.builtin_deref(true, ty::LvaluePreference::NoPreference).expect("Offset called on non-ptr type").ty;
-                let ptr = self.pointer_offset(left.to_ptr()?, pointee_ty, right.to_bytes()? as i64)?;
-                return Ok((PrimVal::Ptr(ptr), false));
-            } else {
-                bug!("Offset used with wrong type");
+        // I: Handle operations that support pointers
+        let usize = PrimValKind::from_uint_size(self.memory.pointer_size());
+        let isize = PrimValKind::from_int_size(self.memory.pointer_size());
+
+        if !left.is_concrete() || !right.is_concrete() {
+            return self.abstract_binary_op(bin_op,
+                                           left, left_kind,
+                                           right, right_kind);
+        }
+
+        match (left, right) {
+            (PrimVal::Ptr(lptr), PrimVal::Ptr(rptr)) => {
+                if !lptr.has_concrete_offset() || !rptr.has_concrete_offset() {
+                    return self.abstract_ptr_ops(bin_op, lptr, left_kind, rptr, right_kind);
+                }
+            }
+            _ => {
+
             }
         }
 
-        let (l, r) = match (left, right) {
-            (PrimVal::Bytes(left_bytes), PrimVal::Bytes(right_bytes)) => (left_bytes, right_bytes),
+        if !left_kind.is_float() && !right_kind.is_float() {
+            match bin_op {
+                Offset if left_kind == Ptr && right_kind == usize => {
+                    let pointee_ty = left_ty.builtin_deref(true, ty::LvaluePreference::NoPreference).expect("Offset called on non-ptr type").ty;
+                    let ptr = self.pointer_offset(left, pointee_ty, right.to_bytes()? as i64)?;
+                    return Ok((ptr, false));
+                },
+                // These work on anything
+                Eq if left_kind == right_kind => {
+                    let result = match (left, right) {
+                        (PrimVal::Bytes(left), PrimVal::Bytes(right)) => left == right,
+                        (PrimVal::Ptr(left), PrimVal::Ptr(right)) => left == right,
+                        (PrimVal::Undef, _) | (_, PrimVal::Undef) => return Err(EvalError::ReadUndefBytes),
+                        _ => false,
+                    };
+                    return Ok((PrimVal::from_bool(result), false));
+                }
+                Ne if left_kind == right_kind => {
+                    let result = match (left, right) {
+                        (PrimVal::Bytes(left), PrimVal::Bytes(right)) => left != right,
+                        (PrimVal::Ptr(left), PrimVal::Ptr(right)) => left != right,
+                        (PrimVal::Undef, _) | (_, PrimVal::Undef) => return Err(EvalError::ReadUndefBytes),
+                        _ => true,
+                    };
+                    return Ok((PrimVal::from_bool(result), false));
+                }
+                // These need both pointers to be in the same allocation
+                Lt | Le | Gt | Ge | Sub
+                if left_kind == right_kind
+                && (left_kind == Ptr || left_kind == usize || left_kind == isize)
+                && left.is_ptr() && right.is_ptr() => {
+                    let left = left.to_ptr()?;
+                    let right = right.to_ptr()?;
+                    let (left_offset, right_offset) = match (left.offset, right.offset) {
+                        (PointerOffset::Concrete(l), PointerOffset::Concrete(r)) => (l, r),
+                        _ => unimplemented!(),
+                    };
 
-            (PrimVal::Ptr(left_ptr), PrimVal::Ptr(right_ptr)) => {
-                return self.ptr_ops(bin_op, left_ptr, left_kind, right_ptr, right_kind);
+
+                    if left.alloc_id == right.alloc_id {
+                        let res = match bin_op {
+                            Lt => left_offset < right_offset,
+                            Le => left_offset <= right_offset,
+                            Gt => left_offset > right_offset,
+                            Ge => left_offset >= right_offset,
+                            Sub => {
+                                return int_arithmetic!(left_kind, overflowing_sub, left_offset, right_offset);
+                            }
+                            _ => bug!("We already established it has to be one of these operators."),
+                        };
+                        return Ok((PrimVal::from_bool(res), false));
+                    } else {
+                        // Both are pointers, but from different allocations.
+                        return Err(EvalError::InvalidPointerMath);
+                    }
+                }
+                // These work if one operand is a pointer, the other an integer
+                Add | BitAnd | Sub
+                if left_kind == right_kind && (left_kind == usize || left_kind == isize)
+                && left.is_ptr() && right.is_bytes() => {
+                    // Cast to i128 is fine as we checked the kind to be ptr-sized
+                    return self.ptr_int_arithmetic(bin_op, left.to_ptr()?, right.to_bytes()? as i128, left_kind == isize);
+                }
+                Add | BitAnd
+                if left_kind == right_kind && (left_kind == usize || left_kind == isize)
+                && left.is_bytes() && right.is_ptr() => {
+                    // This is a commutative operation, just swap the operands
+                    return self.ptr_int_arithmetic(bin_op, right.to_ptr()?, left.to_bytes()? as i128, left_kind == isize);
+                }
+                _ => {}
             }
+        }
 
-            (PrimVal::Ptr(ptr), PrimVal::Bytes(bytes)) |
-            (PrimVal::Bytes(bytes), PrimVal::Ptr(ptr)) => {
-                return Ok((self.ptr_and_bytes_ops(bin_op, ptr, bytes)?, false));
-            }
-
-            (PrimVal::Undef, _) | (_, PrimVal::Undef) => return Err(EvalError::ReadUndefBytes),
-
-            (PrimVal::Abstract(_), _) | (_, PrimVal::Abstract(_)) => {
-                return self.abstract_binary_op(bin_op, left, left_kind, right, right_kind);
-            }
-        };
+        // II: From now on, everything must be bytes, no pointers
+        let l = left.to_bytes()?;
+        let r = right.to_bytes()?;
 
         // These ops can have an RHS with a different numeric type.
         if bin_op == Shl || bin_op == Shr {
@@ -254,12 +309,60 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             (Rem, k) if k.is_int() => return int_arithmetic!(k, overflowing_rem, l, r),
 
             _ => {
-                let msg = format!("unimplemented binary op: {:?}, {:?}, {:?}", left, right, bin_op);
+                let msg = format!("unimplemented binary op {:?}: {:?} ({:?}), {:?} ({:?})", bin_op, left, left_kind, right, right_kind);
                 return Err(EvalError::Unimplemented(msg));
             }
         };
 
         Ok((val, false))
+    }
+
+    fn ptr_int_arithmetic(
+        &self,
+        bin_op: mir::BinOp,
+        left: Pointer,
+        right: i128,
+        signed: bool,
+    ) -> EvalResult<'tcx, (PrimVal, bool)> {
+        use rustc::mir::BinOp::*;
+
+        fn map_to_primval((res, over) : (Pointer, bool)) -> (PrimVal, bool) {
+            (PrimVal::Ptr(res), over)
+        }
+
+        let left_offset = match left.offset {
+            PointerOffset::Concrete(n) => n,
+            _ => unimplemented!(),
+        };
+
+        Ok(match bin_op {
+            Sub =>
+                // The only way this can overflow is by underflowing, so signdeness of the right operands does not matter
+                map_to_primval(left.overflowing_signed_offset(-right, self.memory.layout)),
+            Add if signed =>
+                map_to_primval(left.overflowing_signed_offset(right, self.memory.layout)),
+            Add if !signed =>
+                map_to_primval(left.overflowing_offset(right as u64, self.memory.layout)),
+
+            BitAnd if !signed => {
+                let base_mask : u64 = !(self.memory.get(left.alloc_id)?.align - 1);
+                let right = right as u64;
+                if right & base_mask == base_mask {
+                    // Case 1: The base address bits are all preserved, i.e., right is all-1 there
+                    (PrimVal::Ptr(Pointer::new(left.alloc_id, left_offset & right)), false)
+                } else if right & base_mask == 0 {
+                    // Case 2: The base address bits are all taken away, i.e., right is all-0 there
+                    (PrimVal::from_u128((left_offset & right) as u128), false)
+                } else {
+                    return Err(EvalError::ReadPointerAsBytes);
+                }
+            }
+
+            _ => {
+                let msg = format!("unimplemented binary op on pointer {:?}: {:?}, {:?} ({})", bin_op, left, right, if signed { "signed" } else { "unsigned" });
+                return Err(EvalError::Unimplemented(msg));
+            }
+        })
     }
 
     pub fn abstract_binary_op(
@@ -324,56 +427,6 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         Ok((self.memory.constraints.add_binop_constraint(bin_op, left, right, left_kind), false))
     }
 
-    fn ptr_ops(
-        &mut self,
-        bin_op: mir::BinOp,
-        left: Pointer,
-        left_kind: PrimValKind,
-        right: Pointer,
-        right_kind: PrimValKind,
-    ) -> EvalResult<'tcx, (PrimVal, bool)> {
-        use rustc::mir::BinOp::*;
-        use value::PrimValKind::*;
-        if left_kind != right_kind || !(left_kind.is_ptr() || left_kind == PrimValKind::from_uint_size(self.memory.pointer_size())) {
-            let msg = format!("unimplemented binary op {:?}: {:?} ({:?}), {:?} ({:?})", bin_op, left, left_kind, right, right_kind);
-            return Err(EvalError::Unimplemented(msg));
-        }
-
-        let (left_offset, right_offset) = match (left.offset, right.offset) {
-            (PointerOffset::Concrete(l), PointerOffset::Concrete(r)) => (l, r),
-            _ => return self.abstract_ptr_ops(bin_op, left, left_kind, right, right_kind),
-        };
-
-        let val = match bin_op {
-            Eq => PrimVal::from_bool(left == right),
-            Ne => PrimVal::from_bool(left != right),
-            Lt | Le | Gt | Ge => {
-                if left.alloc_id == right.alloc_id {
-                    PrimVal::from_bool(match bin_op {
-                        Lt => left_offset < right_offset,
-                        Le => left_offset <= right_offset,
-                        Gt => left_offset > right_offset,
-                        Ge => left_offset >= right_offset,
-                        _ => bug!("We already established it has to be a comparison operator."),
-                    })
-                } else {
-                    return Err(EvalError::InvalidPointerMath);
-                }
-            }
-            Sub => {
-                if left.alloc_id == right.alloc_id {
-                    return int_arithmetic!(left_kind, overflowing_sub, left_offset, right_offset);
-                } else {
-                    return Err(EvalError::InvalidPointerMath);
-                }
-            }
-            _ => {
-                return Err(EvalError::ReadPointerAsBytes);
-            }
-        };
-        Ok((val, false))
-    }
-
     fn abstract_ptr_ops(
         &mut self,
         bin_op: mir::BinOp,
@@ -405,39 +458,6 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             let result = self.memory.constraints.add_binop_constraint(
                 bin_op, left_offset_primval, right_offset_primval, U64);
             Ok((result, false))
-        }
-    }
-
-    fn ptr_and_bytes_ops(&self, bin_op: mir::BinOp, left: Pointer, right: u128) -> EvalResult<'tcx, PrimVal> {
-        use rustc::mir::BinOp::*;
-        match bin_op {
-            Eq => Ok(PrimVal::from_bool(false)),
-            Ne => Ok(PrimVal::from_bool(true)),
-            Lt | Le | Gt | Ge => Err(EvalError::InvalidPointerMath),
-            Add => {
-                // TODO what about overflow?
-                match left.offset {
-                    PointerOffset::Concrete(left_offset) => {
-                        let offset = left_offset as u128 + right;
-                        let alloc = self.memory.get(left.alloc_id)?;
-                        if offset < alloc.bytes.len() as u128 {
-                            Ok(PrimVal::Ptr(Pointer::new(left.alloc_id, offset as u64)))
-                        } else {
-                            unimplemented!()
-                        }
-                    }
-                    _ => unimplemented!(),
-                }
-            }
-            Sub => {
-                unimplemented!()
-            }
-            BitOr | BitAnd | BitXor => {
-                Err(EvalError::ReadPointerAsBytes)
-            }
-            _ => {
-                unimplemented!()
-            }
         }
     }
 

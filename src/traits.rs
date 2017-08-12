@@ -1,7 +1,8 @@
 use rustc::traits::{self, Reveal};
 
 use eval_context::EvalContext;
-use memory::{Pointer, PointerOffset};
+use memory::{Pointer};
+use value::{Value, PrimVal};
 
 use rustc::hir::def_id::DefId;
 use rustc::ty::subst::Substs;
@@ -9,7 +10,7 @@ use rustc::ty::{self, Ty};
 use syntax::codemap::DUMMY_SP;
 use syntax::ast;
 
-use error::EvalResult;
+use error::{EvalResult, EvalError};
 
 impl<'a, 'tcx> EvalContext<'a, 'tcx> {
 
@@ -56,14 +57,14 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         let drop = self.memory.create_fn_alloc(drop);
         self.memory.write_ptr(vtable, drop)?;
 
-        self.memory.write_usize(vtable.offset(ptr_size), size)?;
-        self.memory.write_usize(vtable.offset(ptr_size * 2), align)?;
+        self.memory.write_usize(vtable.offset(ptr_size, self.memory.layout)?, size)?;
+        self.memory.write_usize(vtable.offset(ptr_size * 2, self.memory.layout)?, align)?;
 
         for (i, method) in ::rustc::traits::get_vtable_methods(self.tcx, trait_ref).enumerate() {
             if let Some((def_id, substs)) = method {
                 let instance = ::eval_context::resolve(self.tcx, def_id, substs);
                 let fn_ptr = self.memory.create_fn_alloc(instance);
-                self.memory.write_ptr(vtable.offset(ptr_size * (3 + i as u64)), fn_ptr)?;
+                self.memory.write_ptr(vtable.offset(ptr_size * (3 + i as u64), self.memory.layout)?, fn_ptr)?;
             }
         }
 
@@ -72,24 +73,23 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         Ok(vtable)
     }
 
-    pub fn read_drop_type_from_vtable(&self, vtable: Pointer) -> EvalResult<'tcx, Option<ty::Instance<'tcx>>> {
-        let drop_fn = self.memory.read_ptr(vtable)?;
+    pub fn read_drop_type_from_vtable(&mut self, vtable: Pointer) -> EvalResult<'tcx, Option<ty::Instance<'tcx>>> {
+        // we don't care about the pointee type, we just want a pointer
+        let np = self.tcx.mk_nil_ptr();
+        let drop_fn = match self.read_ptr(vtable, np)? {
+            // some values don't need to call a drop impl, so the value is null
+            Value::ByVal(PrimVal::Bytes(0)) => return Ok(None),
+            Value::ByVal(PrimVal::Ptr(drop_fn)) => drop_fn,
+            _ => return Err(EvalError::ReadBytesAsPointer),
+        };
 
-        // just a sanity check
-        assert_eq!(drop_fn.offset, PointerOffset::Concrete(0));
-
-        // some values don't need to call a drop impl, so the value is null
-        if drop_fn == Pointer::from_int(0) {
-            Ok(None)
-        } else {
-            self.memory.get_fn(drop_fn.alloc_id).map(Some)
-        }
+        self.memory.get_fn(drop_fn).map(Some)
     }
 
     pub fn read_size_and_align_from_vtable(&self, vtable: Pointer) -> EvalResult<'tcx, (u64, u64)> {
         let pointer_size = self.memory.pointer_size();
-        let size = self.memory.read_usize(vtable.offset(pointer_size))?.to_u64()?;
-        let align = self.memory.read_usize(vtable.offset(pointer_size * 2))?.to_u64()?;
+        let size = self.memory.read_usize(vtable.offset(pointer_size, self.memory.layout)?)?;
+        let align = self.memory.read_usize(vtable.offset(pointer_size * 2, self.memory.layout)?)?;
         Ok((size, align))
     }
 

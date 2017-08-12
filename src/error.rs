@@ -18,10 +18,12 @@ pub enum EvalError<'tcx> {
     InvalidDiscriminant,
     PointerOutOfBounds {
         ptr: Pointer,
-        size: u64,
+        access: bool,
         allocation_size: u64,
     },
+    InvalidNullPointerUsage,
     ReadPointerAsBytes,
+    ReadBytesAsPointer,
     InvalidPointerMath,
     ReadUndefBytes,
     InvalidBoolOp(mir::BinOp),
@@ -30,6 +32,7 @@ pub enum EvalError<'tcx> {
     ExecuteMemory,
     ArrayIndexOutOfBounds(Span, u64, u64),
     Math(Span, ConstMathErr),
+    OverflowingMath,
     InvalidChar(u128),
     OutOfMemory {
         allocation_size: u64,
@@ -51,8 +54,11 @@ pub enum EvalError<'tcx> {
     ReallocatedStaticMemory,
     DeallocatedStaticMemory,
     Layout(layout::LayoutError<'tcx>),
+    HeapAllocZeroBytes,
+    HeapAllocNonPowerOfTwoAlignment(u64),
     Unreachable,
     Panic,
+    ReadFromReturnPointer,
 }
 
 pub type EvalResult<'tcx, T = ()> = Result<T, EvalError<'tcx>>;
@@ -74,8 +80,12 @@ impl<'tcx> Error for EvalError<'tcx> {
                 "invalid enum discriminant value read",
             EvalError::PointerOutOfBounds { .. } =>
                 "pointer offset outside bounds of allocation",
+            EvalError::InvalidNullPointerUsage =>
+                "invalid use of NULL pointer",
             EvalError::ReadPointerAsBytes =>
                 "a raw memory access tried to access part of a pointer value as raw bytes",
+            EvalError::ReadBytesAsPointer =>
+                "a memory access tried to interpret some bytes as a pointer",
             EvalError::InvalidPointerMath =>
                 "attempted to do math or a comparison on pointers into different allocations",
             EvalError::ReadUndefBytes =>
@@ -91,6 +101,8 @@ impl<'tcx> Error for EvalError<'tcx> {
                 "array index out of bounds",
             EvalError::Math(..) =>
                 "mathematical operation failed",
+            EvalError::OverflowingMath =>
+                "attempted to do overflowing math",
             EvalError::NoMirFor(..) =>
                 "mir not found",
             EvalError::InvalidChar(..) =>
@@ -123,10 +135,16 @@ impl<'tcx> Error for EvalError<'tcx> {
                 "rustc layout computation failed",
             EvalError::UnterminatedCString(_) =>
                 "attempted to get length of a null terminated string, but no null found before end of allocation",
+            EvalError::HeapAllocZeroBytes =>
+                "tried to re-, de- or allocate zero bytes on the heap",
+            EvalError::HeapAllocNonPowerOfTwoAlignment(_) =>
+                "tried to re-, de-, or allocate heap memory with alignment that is not a power of two",
             EvalError::Unreachable =>
                 "entered unreachable code",
             EvalError::Panic =>
                 "the evaluated program panicked",
+            EvalError::ReadFromReturnPointer =>
+                "tried to read from the return pointer",
         }
     }
 
@@ -136,13 +154,12 @@ impl<'tcx> Error for EvalError<'tcx> {
 impl<'tcx> fmt::Display for EvalError<'tcx> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            EvalError::PointerOutOfBounds { ptr, size, allocation_size } => {
+            EvalError::PointerOutOfBounds { ptr, access, allocation_size } => {
                 match ptr.offset {
                     PointerOffset::Concrete(ptr_offset) => {
-                        write!(
-                            f,
-                            "memory access of {}..{} outside bounds of allocation {} which has size {}",
-                            ptr_offset, ptr_offset + size, ptr.alloc_id, allocation_size)
+                        write!(f, "{} at offset {}, outside bounds of allocation {} which has size {}",
+                               if access { "memory access" } else { "pointer computed" },
+                               ptr_offset, ptr.alloc_id, allocation_size)
                     }
                     _ => unimplemented!(),
                 }
@@ -183,10 +200,12 @@ pub enum StaticEvalError {
     InvalidDiscriminant,
     PointerOutOfBounds {
         ptr: Pointer,
-        size: u64,
+        access: bool,
         allocation_size: u64,
     },
+    InvalidNullPointerUsage,
     ReadPointerAsBytes,
+    ReadBytesAsPointer,
     InvalidPointerMath,
     ReadUndefBytes,
     InvalidBoolOp(mir::BinOp),
@@ -195,6 +214,7 @@ pub enum StaticEvalError {
     ExecuteMemory,
     ArrayIndexOutOfBounds(Span, u64, u64),
     Math(Span, ConstMathErr),
+    OverflowingMath,
     InvalidChar(u128),
     OutOfMemory {
         allocation_size: u64,
@@ -216,8 +236,11 @@ pub enum StaticEvalError {
     ReallocatedStaticMemory,
     DeallocatedStaticMemory,
     Layout,
+    HeapAllocZeroBytes,
+    HeapAllocNonPowerOfTwoAlignment(u64),
     Unreachable,
     Panic,
+    ReadFromReturnPointer,
 }
 
 impl <'tcx> From<EvalError<'tcx>> for StaticEvalError {
@@ -235,10 +258,14 @@ impl <'tcx> From<EvalError<'tcx>> for StaticEvalError {
                 StaticEvalError::InvalidBool,
             EvalError::InvalidDiscriminant =>
                 StaticEvalError::InvalidDiscriminant,
-            EvalError::PointerOutOfBounds { ptr, size, allocation_size } =>
-                StaticEvalError::PointerOutOfBounds { ptr, size, allocation_size },
+            EvalError::PointerOutOfBounds { ptr, access, allocation_size } =>
+                StaticEvalError::PointerOutOfBounds { ptr, access, allocation_size },
+            EvalError::InvalidNullPointerUsage =>
+                StaticEvalError::InvalidNullPointerUsage,
             EvalError::ReadPointerAsBytes =>
                 StaticEvalError::ReadPointerAsBytes,
+            EvalError::ReadBytesAsPointer =>
+                StaticEvalError::ReadBytesAsPointer,
             EvalError::InvalidPointerMath =>
                 StaticEvalError::InvalidPointerMath,
             EvalError::ReadUndefBytes =>
@@ -255,6 +282,8 @@ impl <'tcx> From<EvalError<'tcx>> for StaticEvalError {
                 StaticEvalError::ArrayIndexOutOfBounds(a, b, c),
             EvalError::Math(span, e) =>
                 StaticEvalError::Math(span, e),
+            EvalError::OverflowingMath =>
+                StaticEvalError::OverflowingMath,
             EvalError::NoMirFor(ref s) =>
                 StaticEvalError::NoMirFor(s.clone()),
             EvalError::InvalidChar(c) =>
@@ -287,10 +316,16 @@ impl <'tcx> From<EvalError<'tcx>> for StaticEvalError {
                 StaticEvalError::Layout,
             EvalError::UnterminatedCString(ptr) =>
                 StaticEvalError::UnterminatedCString(ptr),
+            EvalError::HeapAllocZeroBytes =>
+                StaticEvalError::HeapAllocZeroBytes,
+            EvalError::HeapAllocNonPowerOfTwoAlignment(n) =>
+                StaticEvalError::HeapAllocNonPowerOfTwoAlignment(n),
             EvalError::Unreachable =>
                 StaticEvalError::Unreachable,
             EvalError::Panic =>
                 StaticEvalError::Panic,
+            EvalError::ReadFromReturnPointer =>
+                StaticEvalError::ReadFromReturnPointer,
         }
     }
 }

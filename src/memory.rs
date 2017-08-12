@@ -7,7 +7,7 @@ use rustc::ty::layout::{self, TargetDataLayout};
 
 use constraints::ConstraintContext;
 use error::{EvalError, EvalResult};
-use value::{PrimVal, PrimValKind};
+use value::{self, PrimVal, PrimValKind};
 
 ////////////////////////////////////////////////////////////////////////////////
 // Allocations and pointers
@@ -87,65 +87,58 @@ impl Pointer {
         Pointer { alloc_id, offset: PointerOffset::Abstract(offset), }
     }
 
-    pub fn is_concrete(self) -> bool {
+    pub fn has_concrete_offset(self) -> bool {
         match self.offset {
             PointerOffset::Concrete(_) => true,
             _ => false,
         }
     }
 
-    pub fn signed_offset(self, i: i64) -> Self {
+    pub fn wrapping_signed_offset<'tcx>(self, i: i64, layout: &TargetDataLayout) -> Self {
         match self.offset {
             PointerOffset::Concrete(self_offset) => {
-                // FIXME: is it possible to over/underflow here?
-                if i < 0 {
-                    // trickery to ensure that i64::min_value() works fine
-                    // this formula only works for true negative values, it panics for zero!
-                    let n = u64::max_value() - (i as u64) + 1;
-                    Pointer::new(self.alloc_id, self_offset - n)
-                } else {
-                    self.offset(i as u64)
-                }
+                Pointer::new(self.alloc_id, value::wrapping_signed_offset(self_offset, i, layout))
             }
             _ => unimplemented!(),
         }
     }
 
-    pub fn offset(self, i: u64) -> Self {
+    pub fn overflowing_signed_offset<'tcx>(self, i: i128, layout: &TargetDataLayout) -> (Self, bool) {
+        match self.offset {
+            PointerOffset::Concrete(self_offset) => {
+                let (res, over) = value::overflowing_signed_offset(self_offset, i, layout);
+                (Pointer::new(self.alloc_id, res), over)
+            }
+            _ => unimplemented!(),
+        }
+    }
+
+    pub fn signed_offset<'tcx>(self, i: i64, layout: &TargetDataLayout) -> EvalResult<'tcx, Self> {
+        match self.offset {
+            PointerOffset::Concrete(self_offset) => {
+                Ok(Pointer::new(self.alloc_id, value::signed_offset(self_offset, i, layout)?))
+            }
+            _ => unimplemented!(),
+        }
+    }
+
+    pub fn overflowing_offset<'tcx>(self, i: u64, layout: &TargetDataLayout) -> (Self, bool) {
+        match self.offset {
+            PointerOffset::Concrete(self_offset) => {
+                let (res, over) = value::overflowing_offset(self_offset, i, layout);
+                (Pointer::new(self.alloc_id, res), over)
+            }
+            _ => unimplemented!(),
+        }
+    }
+
+    pub fn offset<'tcx>(self, i: u64, layout: &TargetDataLayout) -> EvalResult<'tcx, Self> {
         match self.offset {
             PointerOffset::Concrete(offset) => {
-                Pointer::new(self.alloc_id, offset + i)
+                Ok(Pointer::new(self.alloc_id, value::offset(offset, i, layout)?))
             }
             _ => unimplemented!(),
         }
-    }
-
-    pub fn points_to_zst(&self) -> bool {
-        self.alloc_id == ZST_ALLOC_ID
-    }
-
-    pub fn to_int<'tcx>(&self) -> EvalResult<'tcx, u64> {
-        match self.alloc_id {
-            NEVER_ALLOC_ID => {
-                match self.offset {
-                    PointerOffset::Concrete(offset) => Ok(offset),
-                    _ => unimplemented!(),
-                }
-            }
-            _ => Err(EvalError::ReadPointerAsBytes),
-        }
-    }
-
-    pub fn from_int(i: u64) -> Self {
-        Pointer::new(NEVER_ALLOC_ID, i)
-    }
-
-    pub fn zst_ptr() -> Self {
-        Pointer::new(ZST_ALLOC_ID, 0)
-    }
-
-    pub fn never_ptr() -> Self {
-        Pointer::new(NEVER_ALLOC_ID, 0)
     }
 }
 
@@ -203,9 +196,6 @@ pub struct Memory<'a, 'tcx> {
     pub constraints: ConstraintContext,
 }
 
-const ZST_ALLOC_ID: AllocId = AllocId(0);
-const NEVER_ALLOC_ID: AllocId = AllocId(1);
-
 impl<'a, 'tcx> Memory<'a, 'tcx> {
     pub fn new(layout: &'a TargetDataLayout, max_memory: u64) -> Self {
         Memory {
@@ -251,12 +241,9 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
         Ok(ptr)
     }
 
-    fn allocate_inner(&mut self, bytes: Vec<SByte>, align: u64)
-                      -> EvalResult<'tcx, Pointer>
-    {
-        let size = bytes.len() as u64;
-
-        assert!(align != 0);
+    pub fn allocate(&mut self, size: u64, align: u64) -> EvalResult<'tcx, Pointer> {
+        assert_ne!(align, 0);
+        assert!(align.is_power_of_two());
 
         if self.memory_size - self.memory_usage < size {
             return Err(EvalError::OutOfMemory {
@@ -268,7 +255,7 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
         self.memory_usage += size;
         assert_eq!(size as usize as u64, size);
         let alloc = Allocation {
-            bytes: bytes,
+            bytes: vec![SByte::Concrete(0); size as usize],
             relocations: BTreeMap::new(),
             undef_mask: UndefMask::new(size),
             align,
@@ -278,20 +265,12 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
         self.next_id.0 += 1;
         self.alloc_map.insert(id, alloc);
         Ok(Pointer::new(id, 0))
-
-    }
-
-    pub fn allocate(&mut self, size: u64, align: u64) -> EvalResult<'tcx, Pointer> {
-        if size == 0 {
-            return Ok(Pointer::zst_ptr());
-        }
-
-        self.allocate_inner(vec![SByte::Concrete(0); size as usize], align)
     }
 
     // TODO(solson): Track which allocations were returned from __rust_allocate and report an error
     // when reallocating/deallocating any others.
     pub fn reallocate(&mut self, ptr: Pointer, new_size: u64, align: u64) -> EvalResult<'tcx, Pointer> {
+        assert!(align.is_power_of_two());
         let ptr_offset = match ptr.offset {
             PointerOffset::Concrete(offset) => offset,
             _ => unimplemented!(),
@@ -300,9 +279,6 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
         // TODO(solson): Report error about non-__rust_allocate'd pointer.
         if ptr_offset != 0 {
             return Err(EvalError::Unimplemented(format!("bad pointer offset: {}", ptr_offset)));
-        }
-        if ptr.points_to_zst() {
-            return self.allocate(new_size, align);
         }
         if self.get(ptr.alloc_id).ok().map_or(false, |alloc| alloc.static_kind != StaticKind::NotStatic) {
             return Err(EvalError::ReallocatedStaticMemory);
@@ -319,7 +295,7 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
             alloc.undef_mask.grow(amount, false);
         } else if size > new_size {
             self.memory_usage -= size - new_size;
-            self.clear_relocations(ptr.offset(new_size), size - new_size)?;
+            self.clear_relocations(ptr.offset(new_size, self.layout)?, size - new_size)?;
             let alloc = self.get_mut(ptr.alloc_id)?;
             // `as usize` is fine here, since it is smaller than `size`, which came from a usize
             alloc.bytes.truncate(new_size as usize);
@@ -337,9 +313,6 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
             _ => unimplemented!(),
         };
 
-        if ptr.points_to_zst() {
-            return Ok(());
-        }
         if ptr_offset != 0 {
             // TODO(solson): Report error about non-__rust_allocate'd pointer.
             return Err(EvalError::Unimplemented(format!("bad pointer offset: {}", ptr_offset)));
@@ -365,7 +338,7 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
         self.layout.pointer_size.bytes()
     }
 
-    pub fn endianess(&self) -> layout::Endian {
+    pub fn endianness(&self) -> layout::Endian {
         self.layout.endian
     }
 
@@ -412,6 +385,21 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
         }
     }
 
+    pub(crate) fn check_bounds(&self, ptr: Pointer, access: bool) -> EvalResult<'tcx> {
+        let alloc = self.get(ptr.alloc_id)?;
+        let allocation_size = alloc.bytes.len() as u64;
+
+        let ptr_offset = match ptr.offset {
+            PointerOffset::Concrete(offset) => offset,
+            _ => unimplemented!(),
+        };
+
+        if ptr_offset > allocation_size {
+            return Err(EvalError::PointerOutOfBounds { ptr, access, allocation_size });
+        }
+        Ok(())
+    }
+
     pub(crate) fn mark_packed(&mut self, ptr: Pointer, len: u64) {
         let ptr_offset = match ptr.offset {
             PointerOffset::Concrete(offset) => offset,
@@ -451,7 +439,6 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
             Some(alloc) => Ok(alloc),
             None => match self.functions.get(&id) {
                 Some(_) => Err(EvalError::DerefFunctionPointer),
-                None if id == NEVER_ALLOC_ID || id == ZST_ALLOC_ID => Err(EvalError::InvalidMemoryAccess),
                 None => Err(EvalError::DanglingPointerDeref),
             }
         }
@@ -466,17 +453,19 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
             },
             None => match self.functions.get(&id) {
                 Some(_) => Err(EvalError::DerefFunctionPointer),
-                None if id == NEVER_ALLOC_ID || id == ZST_ALLOC_ID => Err(EvalError::InvalidMemoryAccess),
                 None => Err(EvalError::DanglingPointerDeref),
             }
         }
     }
 
-    pub fn get_fn(&self, id: AllocId) -> EvalResult<'tcx, ty::Instance<'tcx>> {
-        debug!("reading fn ptr: {}", id);
-        match self.functions.get(&id) {
+    pub fn get_fn(&self, ptr: Pointer) -> EvalResult<'tcx, ty::Instance<'tcx>> {
+        //if ptr.offset != 0 {
+        //    return Err(EvalError::InvalidFunctionPointer);
+        //}
+        debug!("reading fn ptr: {}", ptr.alloc_id);
+        match self.functions.get(&ptr.alloc_id) {
             Some(&fndef) => Ok(fndef),
-            None => match self.alloc_map.get(&id) {
+            None => match self.alloc_map.get(&ptr.alloc_id) {
                 Some(_) => Err(EvalError::ExecuteMemory),
                 None => Err(EvalError::InvalidFunctionPointer),
             }
@@ -497,7 +486,6 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
         let mut allocs_seen = HashSet::new();
 
         while let Some(id) = allocs_to_print.pop_front() {
-            if id == ZST_ALLOC_ID || id == NEVER_ALLOC_ID { continue; }
             let mut msg = format!("Alloc {:<5} ", format!("{}:", id));
             let prefix_len = msg.len();
             let mut relocations = vec![];
@@ -535,7 +523,7 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
                 StaticKind::Immutable => " (immutable)",
                 StaticKind::NotStatic => "",
             };
-            trace!("{}({} bytes){}", msg, alloc.bytes.len(), immutable);
+            trace!("{}({} bytes, alignment {}){}", msg, alloc.bytes.len(), alloc.align, immutable);
 
             if !relocations.is_empty() {
                 msg.clear();
@@ -545,11 +533,7 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
                 for (i, target_id) in relocations {
                     // this `as usize` is fine, since we can't print more chars than `usize::MAX`
                     write!(msg, "{:1$}", "", ((i - pos) * 3) as usize).unwrap();
-                    let target = match target_id {
-                        ZST_ALLOC_ID => String::from("zst"),
-                        NEVER_ALLOC_ID => String::from("int ptr"),
-                        _ => format!("({})", target_id),
-                    };
+                    let target = format!("({})", target_id);
                     // this `as usize` is fine, since we can't print more chars than `usize::MAX`
                     write!(msg, "└{0:─^1$}┘ ", target, relocation_width as usize).unwrap();
                     pos = i + self.pointer_size();
@@ -586,17 +570,17 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
             return Ok(&[]);
         }
         self.check_align(ptr, align, size)?;
+
+        // if ptr.offset is in bounds, then so is ptr (because offset checks for overflow)
+        self.check_bounds(ptr.offset(size, self.layout)?, true)?;
+
         let alloc = self.get(ptr.alloc_id)?;
-        let allocation_size = alloc.bytes.len() as u64;
 
         let ptr_offset = match ptr.offset {
             PointerOffset::Concrete(offset) => offset,
             _ => unimplemented!(),
         };
 
-        if ptr_offset + size > allocation_size {
-            return Err(EvalError::PointerOutOfBounds { ptr, size, allocation_size });
-        }
         assert_eq!(ptr_offset as usize as u64, ptr_offset);
         assert_eq!(size as usize as u64, size);
         let offset = ptr_offset as usize;
@@ -610,18 +594,14 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
             return Ok(&mut []);
         }
         self.check_align(ptr, align, size)?;
+        self.check_bounds(ptr.offset(size, self.layout)?, true)?; // if ptr.offset is in bounds, then so is ptr (because offset checks for overflow)
         let alloc = self.get_mut(ptr.alloc_id)?;
-        let allocation_size = alloc.bytes.len() as u64;
 
         assert_eq!(size as usize as u64, size);
         let ptr_offset = match ptr.offset {
             PointerOffset::Concrete(offset) => offset,
             _ => unimplemented!(),
         };
-
-        if ptr_offset + size > allocation_size {
-            return Err(EvalError::PointerOutOfBounds { ptr, size, allocation_size });
-        }
 
         assert_eq!(ptr_offset as usize as u64, ptr_offset);
         let ptr_offset = ptr_offset as usize;
@@ -649,7 +629,7 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
             return Ok(&mut []);
         }
         self.clear_relocations(ptr, size)?;
-        self.mark_definedness(ptr, size, true)?;
+        self.mark_definedness(PrimVal::Ptr(ptr), size, true)?;
         self.get_bytes_unchecked_mut(ptr, size, align)
     }
 
@@ -675,7 +655,7 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
     /// mark an allocation as being the entry point to a static (see `static_alloc` field)
     pub fn mark_static(&mut self, alloc_id: AllocId) {
         trace!("mark_static: {:?}", alloc_id);
-        if alloc_id != NEVER_ALLOC_ID && alloc_id != ZST_ALLOC_ID && !self.static_alloc.insert(alloc_id) {
+        if !self.static_alloc.insert(alloc_id) {
             bug!("tried to mark an allocation ({:?}) as static twice", alloc_id);
         }
     }
@@ -705,7 +685,6 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
                 // mark recursively
                 mem::replace(relocations, Default::default())
             },
-            None if alloc_id == NEVER_ALLOC_ID || alloc_id == ZST_ALLOC_ID => return Ok(()),
             None if !self.functions.contains_key(&alloc_id) => return Err(EvalError::DanglingPointerDeref),
             _ => return Ok(()),
         };
@@ -718,10 +697,12 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
         Ok(())
     }
 
-    pub fn copy(&mut self, src: Pointer, dest: Pointer, size: u64, align: u64) -> EvalResult<'tcx> {
+    pub fn copy(&mut self, src: PrimVal, dest: PrimVal, size: u64, align: u64) -> EvalResult<'tcx> {
         if size == 0 {
             return Ok(());
         }
+        let src = src.to_ptr()?;
+        let dest = dest.to_ptr()?;
 
         if let PointerOffset::Abstract(_) = dest.offset {
             unimplemented!()
@@ -773,7 +754,7 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
                         PrimValKind::U64);
 
                     let sbyte = self.constraints.add_array_element_constraint(arr, abs_idx);
-                    self.get_bytes_mut(dest.offset(idx), 1, 1)?[0] = sbyte;
+                    self.get_bytes_mut(dest.offset(idx, self.layout)?, 1, 1)?[0] = sbyte;
                 }
 
             }
@@ -821,10 +802,28 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
         } */
     }
 
-    pub fn read_bytes(&self, ptr: Pointer, size: u64)
+    pub fn read_bytes(&self, ptr: PrimVal, size: u64)
                       -> EvalResult<'tcx, &[SByte]>
     {
-        self.get_bytes(ptr, size, 1)
+        self.get_bytes(ptr.to_ptr()?, size, 1)
+    }
+
+    pub fn read_abstract(&self, ptr: PrimVal, size: u64)
+                      -> EvalResult<'tcx, PrimVal>
+    {
+        let mut result_sbytes = [SByte::Concrete(0); 8];
+
+        let sbytes = self.read_bytes(ptr, size)?;
+        for idx in 0..(size as usize) {
+            let src_idx = if let layout::Endian::Big = self.endianness() {
+                size as usize - 1 - idx
+            } else {
+                idx
+            };
+            result_sbytes[idx] = sbytes[src_idx];
+        }
+
+        Ok(PrimVal::Abstract(result_sbytes))
     }
 
     pub fn write_bytes(&mut self, ptr: Pointer, src: &[u8]) -> EvalResult<'tcx> {
@@ -841,9 +840,11 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
         Ok(())
     }
 
-    pub fn read_ptr(&self, ptr: Pointer) -> EvalResult<'tcx, Pointer> {
+    pub fn read_ptr(&self, ptr: Pointer) -> EvalResult<'tcx, PrimVal> {
         let size = self.pointer_size();
-        self.check_defined(ptr, size)?;
+        if self.check_defined(ptr, size).is_err() {
+            return Ok(PrimVal::Undef);
+        }
 
         let ptr_offset = match ptr.offset {
             PointerOffset::Concrete(offset) => offset,
@@ -851,25 +852,25 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
         };
         let alloc = self.get(ptr.alloc_id)?;
 
-        let endianess = self.endianess();
-        let bytes = self.get_bytes_unchecked(ptr, size, size)?;
-        let offset_primval = self.read_target_uint(endianess, bytes).unwrap();
-        if offset_primval.is_concrete() {
-            let offset = offset_primval.to_u128()?;
+        let endianness = self.endianness();
+        if self.points_to_concrete(ptr, size)? {
+            let bytes = self.get_bytes_unchecked(ptr, size, size)?;
+            let offset = read_target_uint(endianness, bytes).unwrap();
             assert_eq!(offset as u64 as u128, offset);
             let offset = offset as u64;
 
             match alloc.relocations.get(&ptr_offset) {
-                Some(&alloc_id) => Ok(Pointer::new(alloc_id, offset)),
-                None => Ok(Pointer::from_int(offset)),
-            }
-        } else if let PrimVal::Abstract(sbytes) = offset_primval {
-            match alloc.relocations.get(&ptr_offset) {
-                Some(&alloc_id) => Ok(Pointer::new_abstract(alloc_id, sbytes)),
-                None => Ok(Pointer::new_abstract(NEVER_ALLOC_ID, sbytes)),
+                Some(&alloc_id) => Ok(PrimVal::Ptr(Pointer::new(alloc_id, offset))),
+                None => Ok(PrimVal::Bytes(offset as u128)),
             }
         } else {
-            unimplemented!()
+            let mut sbytes = [SByte::Concrete(0); 8];
+            sbytes.copy_from_slice(self.get_bytes_unchecked(ptr, size, size)?);
+
+            match alloc.relocations.get(&ptr_offset) {
+                Some(&alloc_id) => Ok(PrimVal::Ptr(Pointer::new_abstract(alloc_id, sbytes))),
+                None => unimplemented!(),
+            }
         }
     }
 
@@ -878,17 +879,13 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
             (PointerOffset::Concrete(ptr_offset),
              PointerOffset::Concrete(dest_offset)) => {
                 self.write_usize(dest, ptr_offset as u64)?;
-                if ptr.alloc_id != NEVER_ALLOC_ID {
-                    self.get_mut(dest.alloc_id)?.relocations.insert(dest_offset, ptr.alloc_id);
-                }
+                self.get_mut(dest.alloc_id)?.relocations.insert(dest_offset, ptr.alloc_id);
                 Ok(())
             }
             (PointerOffset::Abstract(sbytes),
              PointerOffset::Concrete(dest_offset)) => {
-                self.write_primval(dest, PrimVal::Abstract(sbytes), 8)?; // FIXME usize
-                if ptr.alloc_id != NEVER_ALLOC_ID {
-                    self.get_mut(dest.alloc_id)?.relocations.insert(dest_offset, ptr.alloc_id);
-                }
+                self.write_primval(PrimVal::Ptr(dest), PrimVal::Abstract(sbytes), 8)?; // FIXME usize
+                self.get_mut(dest.alloc_id)?.relocations.insert(dest_offset, ptr.alloc_id);
                 Ok(())
             }
             _ => unimplemented!(),
@@ -897,18 +894,18 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
 
     pub fn write_primval(
         &mut self,
-        dest: Pointer,
+        dest: PrimVal,
         val: PrimVal,
         size: u64,
     ) -> EvalResult<'tcx> {
-        if !dest.is_concrete() {
-            return self.write_primval_to_abstract_ptr(dest, val, size);
+        if dest.is_ptr() && !dest.to_ptr()?.has_concrete_offset() {
+            return self.write_primval_to_abstract_ptr(dest.to_ptr()?, val, size);
         }
 
         match val {
             PrimVal::Ptr(ptr) => {
                 assert_eq!(size, self.pointer_size());
-                self.write_ptr(dest, ptr)
+                self.write_ptr(dest.to_ptr()?, ptr)
             }
 
             PrimVal::Bytes(bytes) => {
@@ -922,14 +919,14 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
                     16 => !0,
                     _ => bug!("unexpected PrimVal::Bytes size"),
                 };
-                self.write_uint(dest, bytes & mask, size)
+                self.write_uint(dest.to_ptr()?, bytes & mask, size)
             }
 
             PrimVal::Abstract(sbytes) => {
                 let align = self.int_align(size)?;
-                match self.endianess() {
+                match self.endianness() {
                     layout::Endian::Little => {
-                        let dest_slice = self.get_bytes_mut(dest, size, align)?;
+                        let dest_slice = self.get_bytes_mut(dest.to_ptr()?, size, align)?;
                         dest_slice.copy_from_slice(&sbytes[.. size as usize]);
                         Ok(())
                     }
@@ -967,7 +964,7 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
                     };
 
                     let mut bytes = vec![0u8; size as usize];
-                    let endianness = self.endianess();
+                    let endianness = self.endianness();
                     Self::write_target_uint(endianness, &mut bytes[..], n & mask).unwrap();
 
                     for idx in 0..size {
@@ -1038,42 +1035,54 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
         }
     }
 
-    pub fn read_int(&self, ptr: Pointer, size: u64) -> EvalResult<'tcx, PrimVal> {
+    pub fn read_int(&self, ptr: Pointer, size: u64) -> EvalResult<'tcx, i128> {
         let align = self.int_align(size)?;
-        self.get_bytes(ptr, size, align).map(|b| self.read_primval(b, true).unwrap())
+        self.get_bytes(ptr, size, align).map(|b| read_target_int(self.endianness(), b).unwrap())
     }
 
     pub fn write_int(&mut self, ptr: Pointer, n: i128, size: u64) -> EvalResult<'tcx> {
         let align = self.int_align(size)?;
-        let endianess = self.endianess();
+        let endianness = self.endianness();
         let mut bytes = vec![0u8; size as usize];
         let sb = self.get_bytes_mut(ptr, size, align)?;
-        Self::write_target_int(endianess, &mut bytes[..], n).unwrap();
+        Self::write_target_int(endianness, &mut bytes[..], n).unwrap();
         for idx in 0..bytes.len() {
             sb[idx] = SByte::Concrete(bytes[idx]);
         }
         Ok(())
     }
 
-    pub fn read_uint(&self, ptr: Pointer, size: u64) -> EvalResult<'tcx, PrimVal> {
+    pub fn points_to_concrete(&self, ptr: Pointer, size: u64) -> EvalResult<'tcx, bool> {
+        let bytes = self.get_bytes_unchecked(ptr, size, 1)?;
+        for &b in bytes {
+            match b {
+                SByte::Abstract(..) => return Ok(false),
+                _ => (),
+            }
+        }
+
+        Ok(true)
+    }
+
+    pub fn read_uint(&self, ptr: Pointer, size: u64) -> EvalResult<'tcx, u128> {
         let align = self.int_align(size)?;
-        self.get_bytes(ptr, size, align).map(|b| self.read_primval(b, false).unwrap())
+        self.get_bytes(ptr, size, align).map(|b| read_target_uint(self.endianness(), b).unwrap())
     }
 
     pub fn write_uint(&mut self, ptr: Pointer, n: u128, size: u64) -> EvalResult<'tcx> {
         let align = self.int_align(size)?;
-        let endianess = self.endianess();
+        let endianness = self.endianness();
         let sb = self.get_bytes_mut(ptr, size, align)?;
         let mut bytes = vec![0u8; size as usize];
-        Self::write_target_uint(endianess, &mut bytes[..], n).unwrap();
+        Self::write_target_uint(endianness, &mut bytes[..], n).unwrap();
         for idx in 0..bytes.len() {
             sb[idx] = SByte::Concrete(bytes[idx]);
         }
         Ok(())
     }
 
-    pub fn read_isize(&self, ptr: Pointer) -> EvalResult<'tcx, PrimVal> {
-        self.read_int(ptr, self.pointer_size())
+    pub fn read_isize(&self, ptr: Pointer) -> EvalResult<'tcx, i64> {
+        self.read_int(ptr, self.pointer_size()).map(|i| i as i64)
     }
 
     pub fn write_isize(&mut self, ptr: Pointer, n: i64) -> EvalResult<'tcx> {
@@ -1081,8 +1090,8 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
         self.write_int(ptr, n as i128, size)
     }
 
-    pub fn read_usize(&self, ptr: Pointer) -> EvalResult<'tcx, PrimVal> {
-        self.read_uint(ptr, self.pointer_size())
+    pub fn read_usize(&self, ptr: Pointer) -> EvalResult<'tcx, u64> {
+        self.read_uint(ptr, self.pointer_size()).map(|i| i as u64)
     }
 
     pub fn write_usize(&mut self, ptr: Pointer, n: u64) -> EvalResult<'tcx> {
@@ -1092,93 +1101,119 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
 
     /*
     pub fn write_f32(&mut self, ptr: Pointer, f: f32) -> EvalResult<'tcx> {
-        let endianess = self.endianess();
+        let endianness = self.endianness();
         let align = self.layout.f32_align.abi();
         let b = self.get_bytes_mut(ptr, 4, align)?;
-        write_target_f32(endianess, b, f).unwrap();
+        write_target_f32(endianness, b, f).unwrap();
         Ok(())
     }
 
     pub fn write_f64(&mut self, ptr: Pointer, f: f64) -> EvalResult<'tcx> {
-        let endianess = self.endianess();
+        let endianness = self.endianness();
         let align = self.layout.f64_align.abi();
         let b = self.get_bytes_mut(ptr, 8, align)?;
-        self.write_target_f64(endianess, b, f).unwrap();
+        self.write_target_f64(endianness, b, f).unwrap();
         Ok(())
     }*/
 
-    pub fn read_f32(&self, ptr: Pointer) -> EvalResult<'tcx, PrimVal> {
-        self.read_uint(ptr, 4)
+    pub fn read_f32(&self, ptr: Pointer) -> EvalResult<'tcx, f32> {
+        self.get_bytes(ptr, 4, self.layout.f32_align.abi())
+            .map(|b| read_target_f32(self.endianness(), b).unwrap())
     }
 
-    pub fn read_f64(&self, ptr: Pointer) -> EvalResult<'tcx, PrimVal> {
-        self.read_uint(ptr, 8)
-    }
-
-    fn read_primval(&self, sbytes: &[SByte], signed: bool) -> Result<PrimVal, io::Error>
-    {
-        let mut bytes = Vec::with_capacity(sbytes.len());
-        for sb in sbytes {
-            match *sb {
-                SByte::Concrete(b) => bytes.push(b),
-                SByte::Abstract(_v) => {
-                    // At least one byte is abstract.
-                    let mut result = [SByte::Concrete(0); 8];
-                    match self.endianess() {
-                        layout::Endian::Little => {
-                            for (idx, sb1) in sbytes.iter().enumerate() {
-                                result[idx] = *sb1;
-                            }
-                        }
-                        layout::Endian::Big => {
-                            unimplemented!()
-                        }
-                    }
-                    return Ok(PrimVal::Abstract(result));
-                }
-            }
-        }
-
-        let mut source = &bytes[..];
-        Ok(match (self.endianess(), signed) {
-            (layout::Endian::Little, false) =>
-                PrimVal::from_u128(source.read_uint128::<LittleEndian>(source.len())?),
-            (layout::Endian::Big, false) =>
-                PrimVal::from_u128(source.read_uint128::<BigEndian>(source.len())?),
-            (layout::Endian::Little, true) =>
-                PrimVal::from_i128(source.read_int128::<LittleEndian>(source.len())?),
-            (layout::Endian::Big, true) =>
-                PrimVal::from_i128(source.read_int128::<BigEndian>(source.len())?),
-
-        })
+    pub fn read_f64(&self, ptr: Pointer) -> EvalResult<'tcx, f64> {
+        self.get_bytes(ptr, 8, self.layout.f64_align.abi())
+            .map(|b| read_target_f64(self.endianness(), b).unwrap())
     }
 
     ////////////////////////////////////////////////////////////////////////////////
-    // Methods to access integers in the target endianess
+    // Methods to access integers in the target endianness
     ////////////////////////////////////////////////////////////////////////////////
 
-    fn write_target_uint(endianess: layout::Endian, mut target: &mut [u8], data: u128) -> Result<(), io::Error> {
+    fn write_target_uint(endianness: layout::Endian, mut target: &mut [u8], data: u128) -> Result<(), io::Error> {
         let len = target.len();
-        match endianess {
+        match endianness {
             layout::Endian::Little => target.write_uint128::<LittleEndian>(data, len),
             layout::Endian::Big => target.write_uint128::<BigEndian>(data, len),
         }
     }
 
-    fn write_target_int(endianess: layout::Endian, mut target: &mut [u8], data: i128)
+    fn write_target_int(endianness: layout::Endian, mut target: &mut [u8], data: i128)
                         -> Result<(), io::Error>
     {
         let len = target.len();
-        match endianess {
+        match endianness {
             layout::Endian::Little => target.write_int128::<LittleEndian>(data, len),
             layout::Endian::Big => target.write_int128::<BigEndian>(data, len),
         }
     }
+}
 
-    fn read_target_uint(&self, _endianess: layout::Endian, source: &[SByte])
-                        -> Result<PrimVal, io::Error>
-    {
-        self.read_primval(source, false)
+fn read_target_uint(endianness: layout::Endian, sbytes: &[SByte])
+                    -> Result<u128, io::Error>
+{
+    let mut source = Vec::with_capacity(sbytes.len());
+    for sb in sbytes {
+        match *sb {
+            SByte::Concrete(b) => source.push(b),
+            SByte::Abstract(_v) => unimplemented!(),
+        }
+    }
+    let mut source = &source[..];
+    match endianness {
+        layout::Endian::Little => source.read_uint128::<LittleEndian>(source.len()),
+        layout::Endian::Big => source.read_uint128::<BigEndian>(source.len()),
+    }
+}
+
+fn read_target_int(endianness: layout::Endian, sbytes: &[SByte])
+                    -> Result<i128, io::Error>
+{
+    let mut source = Vec::with_capacity(sbytes.len());
+    for sb in sbytes {
+        match *sb {
+            SByte::Concrete(b) => source.push(b),
+            SByte::Abstract(_v) => unimplemented!(),
+        }
+    }
+    let mut source = &source[..];
+    match endianness {
+        layout::Endian::Little => source.read_int128::<LittleEndian>(source.len()),
+        layout::Endian::Big => source.read_int128::<BigEndian>(source.len()),
+    }
+}
+
+fn read_target_f32(endianness: layout::Endian, sbytes: &[SByte])
+                    -> Result<f32, io::Error>
+{
+    let mut source = Vec::with_capacity(sbytes.len());
+    for sb in sbytes {
+        match *sb {
+            SByte::Concrete(b) => source.push(b),
+            SByte::Abstract(_v) => unimplemented!(),
+        }
+    }
+    let mut source = &source[..];
+    match endianness {
+        layout::Endian::Little => source.read_f32::<LittleEndian>(),
+        layout::Endian::Big => source.read_f32::<BigEndian>(),
+    }
+}
+
+fn read_target_f64(endianness: layout::Endian, sbytes: &[SByte])
+                    -> Result<f64, io::Error>
+{
+    let mut source = Vec::with_capacity(sbytes.len());
+    for sb in sbytes {
+        match *sb {
+            SByte::Concrete(b) => source.push(b),
+            SByte::Abstract(_v) => unimplemented!(),
+        }
+    }
+    let mut source = &source[..];
+    match endianness {
+        layout::Endian::Little => source.read_f64::<LittleEndian>(),
+        layout::Endian::Big => source.read_f64::<BigEndian>(),
     }
 }
 
@@ -1232,7 +1267,7 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
 
     fn check_relocation_edges(&self, ptr: Pointer, size: u64) -> EvalResult<'tcx> {
         let overlapping_start = self.relocations(ptr, 0)?.count();
-        let overlapping_end = self.relocations(ptr.offset(size), 0)?.count();
+        let overlapping_end = self.relocations(ptr.offset(size, self.layout)?, 0)?.count();
         if overlapping_start + overlapping_end != 0 {
             return Err(EvalError::ReadPointerAsBytes);
         }
@@ -1295,13 +1330,14 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
 
     pub fn mark_definedness(
         &mut self,
-        ptr: Pointer,
+        ptr: PrimVal,
         size: u64,
         new_state: bool
     ) -> EvalResult<'tcx> {
         if size == 0 {
             return Ok(())
         }
+        let ptr = ptr.to_ptr()?;
         let alloc = self.get_mut(ptr.alloc_id)?;
         match ptr.offset {
             PointerOffset::Concrete(offset) => {

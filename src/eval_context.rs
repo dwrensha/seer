@@ -39,6 +39,10 @@ pub struct EvalContext<'a, 'tcx: 'a> {
     /// This prevents infinite loops and huge computations from freezing up const eval.
     /// Remove once halting problem is solved.
     pub(crate) steps_remaining: u64,
+
+    /// Environment variables set by `setenv`
+    /// Miri does not expose env vars from the host to the emulated program
+    pub(crate) env_vars: HashMap<Vec<u8>, Pointer>,
 }
 
 impl <'a, 'tcx: 'a> Clone for EvalContext<'a, 'tcx> {
@@ -50,6 +54,7 @@ impl <'a, 'tcx: 'a> Clone for EvalContext<'a, 'tcx> {
             stack: self.stack.clone(),
             stack_limit: self.stack_limit,
             steps_remaining: self.steps_remaining,
+            env_vars: self.env_vars.clone(),
         }
     }
 }
@@ -154,6 +159,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             stack: Vec::new(),
             stack_limit: limits.stack_limit,
             steps_remaining: limits.step_limit,
+            env_vars: HashMap::new(),
         }
     }
 
@@ -182,6 +188,20 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
 
     pub fn stack(&self) -> &[Frame<'tcx>] {
         &self.stack
+    }
+
+    /// Returns true if the current frame or any parent frame is part of a ctfe.
+    ///
+    /// Used to disable features in const eval, which do not have a rfc enabling
+    /// them or which can't be written in a way that they produce the same output
+    /// that evaluating the code at runtime would produce.
+    pub fn const_env(&self) -> bool {
+        for frame in self.stack.iter().rev() {
+            if let StackPopCleanup::MarkStatic(_) = frame.return_to_block {
+                return true;
+            }
+        }
+        false
     }
 
     pub(crate) fn str_to_value(&mut self, s: &str) -> EvalResult<'tcx, Value> {
@@ -382,13 +402,13 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         where J::IntoIter: ExactSizeIterator,
     {
         // FIXME(solson)
-        let dest_ptr = self.force_allocation(dest)?.to_ptr();
+        let dest_ptr = self.force_allocation(dest)?.to_ptr()?;
 
-        let discr_dest = dest_ptr.offset(discr_offset);
+        let discr_dest = dest_ptr.offset(discr_offset, self.memory.layout)?;
         self.memory.write_uint(discr_dest, discr_val, discr_size)?;
 
         let dest = Lvalue::Ptr {
-            ptr: dest_ptr,
+            ptr: PrimVal::Ptr(dest_ptr),
             extra: LvalueExtra::DowncastVariant(variant_idx),
         };
 
@@ -469,7 +489,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 match *dest_layout {
                     Univariant { ref variant, .. } => {
                         if variant.packed {
-                            let ptr = self.force_allocation(dest)?.to_ptr_and_extra().0;
+                            let ptr = self.force_allocation(dest)?.to_ptr_and_extra().0.to_ptr()?;
                             self.memory.mark_packed(ptr, variant.stride().bytes());
                         }
                         self.assign_fields(dest, dest_ty, operands)?;
@@ -487,7 +507,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                                 .to_u128_unchecked();
                             let discr_size = discr.size().bytes();
                             if variants[variant].packed {
-                                let ptr = self.force_allocation(dest)?.to_ptr_and_extra().0;
+                                let ptr = self.force_allocation(dest)?.to_ptr_and_extra().0.to_ptr()?;
                                 self.memory.mark_packed(ptr, variants[variant].stride().bytes());
                             }
 
@@ -529,7 +549,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     StructWrappedNullablePointer { nndiscr, ref nonnull, ref discrfield, .. } => {
                         if let mir::AggregateKind::Adt(_, variant, _, _) = **kind {
                             if nonnull.packed {
-                                let ptr = self.force_allocation(dest)?.to_ptr_and_extra().0;
+                                let ptr = self.force_allocation(dest)?.to_ptr_and_extra().0.to_ptr()?;
                                 self.memory.mark_packed(ptr, nonnull.stride().bytes());
                             }
                             if nndiscr == variant as u64 {
@@ -542,9 +562,9 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                                 let (offset, ty) = self.nonnull_offset_and_ty(dest_ty, nndiscr, discrfield)?;
 
                                 // FIXME(solson)
-                                let dest = self.force_allocation(dest)?.to_ptr();
+                                let dest = self.force_allocation(dest)?.to_ptr()?;
 
-                                let dest = dest.offset(offset.bytes());
+                                let dest = dest.offset(offset.bytes(), self.memory.layout)?;
                                 let dest_size = self.type_size(ty)?
                                     .expect("bad StructWrappedNullablePointer discrfield");
                                 self.memory.write_int(dest, 0, dest_size)?;
@@ -601,10 +621,10 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 let value = self.eval_operand(operand)?;
 
                 // FIXME(solson)
-                let dest = self.force_allocation(dest)?.to_ptr();
+                let dest = PrimVal::Ptr(self.force_allocation(dest)?.to_ptr()?);
 
                 for i in 0..length {
-                    let elem_dest = dest.offset(i * elem_size);
+                    let elem_dest = dest.offset(i * elem_size, self.memory.layout)?;
                     self.write_value_to_ptr(value, elem_dest, elem_ty)?;
                 }
             }
@@ -618,8 +638,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
 
             Ref(_, _, ref lvalue) => {
                 let src = self.eval_lvalue(lvalue)?;
-                let (raw_ptr, extra) = self.force_allocation(src)?.to_ptr_and_extra();
-                let ptr = PrimVal::Ptr(raw_ptr);
+                let (ptr, extra) = self.force_allocation(src)?.to_ptr_and_extra();
 
                 let val = match extra {
                     LvalueExtra::None => Value::ByVal(ptr),
@@ -633,11 +652,25 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             }
 
             NullaryOp(mir::NullOp::Box, ty) => {
-                let ptr = self.alloc_ptr(ty)?;
-                self.write_primval(dest, PrimVal::Ptr(ptr), dest_ty)?;
+                if self.const_env() {
+                    unimplemented!();
+                    //return Err(EvalError::NeedsRfc("\"heap\" allocations".to_string()));
+                }
+                // FIXME: call the `exchange_malloc` lang item if available
+                if self.type_size(ty)?.expect("box only works with sized types") == 0 {
+                    let align = self.type_align(ty)?;
+                    self.write_primval(dest, PrimVal::Bytes(align.into()), dest_ty)?;
+                } else {
+                    let ptr = self.alloc_ptr(ty)?;
+                    self.write_primval(dest, PrimVal::Ptr(ptr), dest_ty)?;
+                }
             }
 
             NullaryOp(mir::NullOp::SizeOf, ty) => {
+                if self.const_env() {
+                    unimplemented!();
+                    //return Err(EvalError::NeedsRfc("computing the size of types (size_of)".to_string()));
+                }
                 let size = self.type_size(ty)?.expect("SizeOf nullary MIR operator called for unsized type");
                 self.write_primval(dest, PrimVal::from_u128(size as u128), dest_ty)?;
             }
@@ -714,7 +747,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             Discriminant(ref lvalue) => {
                 let lval = self.eval_lvalue(lvalue)?;
                 let ty = self.lvalue_ty(lvalue);
-                let ptr = self.force_allocation(lval)?.to_ptr();
+                let ptr = self.force_allocation(lval)?.to_ptr()?;
                 let discr_val = self.read_discriminant_value(ptr, ty)?;
                 if let ty::TyAdt(adt_def, _) = ty.sty {
                     if adt_def.discriminants(self.tcx).all(|v| discr_val != v.to_u128_unchecked()) {
@@ -844,15 +877,37 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         }
     }
 
-    pub(super) fn pointer_offset(
-        &self, ptr: Pointer, pointee_ty: Ty<'tcx>, offset: i64)
-        -> EvalResult<'tcx, Pointer>
-    {
+    pub(super) fn wrapping_pointer_offset(&self, ptr: PrimVal, pointee_ty: Ty<'tcx>, offset: i64) -> EvalResult<'tcx, PrimVal> {
         // FIXME: assuming here that type size is < i64::max_value()
-        let pointee_size =
-            self.type_size(pointee_ty)?.expect("cannot offset a pointer to an unsized type") as i64;
-        // FIXME: Check overflow, out-of-bounds
-        Ok(ptr.signed_offset(offset * pointee_size))
+        let pointee_size = self.type_size(pointee_ty)?.expect("cannot offset a pointer to an unsized type") as i64;
+        let offset = offset.overflowing_mul(pointee_size).0;
+        ptr.wrapping_signed_offset(offset, self.memory.layout)
+    }
+
+    pub(super) fn pointer_offset(&self, ptr: PrimVal, pointee_ty: Ty<'tcx>, offset: i64) -> EvalResult<'tcx, PrimVal> {
+        // This function raises an error if the offset moves the pointer outside of its allocation.  We consider
+        // ZSTs their own huge allocation that doesn't overlap with anything (and nothing moves in there because the size is 0).
+        // We also consider the NULL pointer its own separate allocation, and all the remaining integers pointers their own
+        // allocation.
+
+        if ptr.is_null()? { // NULL pointers must only be offset by 0
+            return if offset == 0 { Ok(ptr) } else { Err(EvalError::InvalidNullPointerUsage) };
+        }
+        // FIXME: assuming here that type size is < i64::max_value()
+        let pointee_size = self.type_size(pointee_ty)?.expect("cannot offset a pointer to an unsized type") as i64;
+        return if let Some(offset) = offset.checked_mul(pointee_size) {
+            let ptr = ptr.signed_offset(offset, self.memory.layout)?;
+            // Do not do bounds-checking for integers; they can never alias a normal pointer anyway.
+            if let PrimVal::Ptr(ptr) = ptr {
+                self.memory.check_bounds(ptr, false)?;
+            } else if ptr.is_null()? {
+                // We moved *to* a NULL pointer.  That seems wrong, LLVM considers the NULL pointer its own small allocation.  Reject this, for now.
+                return Err(EvalError::InvalidNullPointerUsage);
+            }
+            Ok(ptr)
+        } else {
+            Err(EvalError::OverflowingMath)
+        }
     }
 
     pub(super) fn eval_operand_to_primval(&mut self, op: &mir::Operand<'tcx>) -> EvalResult<'tcx, PrimVal> {
@@ -896,7 +951,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         self.monomorphize(operand.ty(self.mir(), self.tcx), self.substs())
     }
 
-    fn copy(&mut self, src: Pointer, dest: Pointer, ty: Ty<'tcx>) -> EvalResult<'tcx> {
+    fn copy(&mut self, src: PrimVal, dest: PrimVal, ty: Ty<'tcx>) -> EvalResult<'tcx> {
         let size = self.type_size(ty)?.expect("cannot copy from an unsized type");
         let align = self.type_align(ty)?;
         self.memory.copy(src, dest, size, align)?;
@@ -920,7 +975,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                         let substs = self.stack[frame].instance.substs;
                         let ptr = self.alloc_ptr_with_substs(ty, substs)?;
                         self.stack[frame].locals[local.index() - 1] = Value::ByRef(ptr);
-                        self.write_value_to_ptr(val, ptr, ty)?;
+                        self.write_value_to_ptr(val, PrimVal::Ptr(ptr), ty)?;
                         Lvalue::from_ptr(ptr)
                     }
                 }
@@ -933,7 +988,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     _ => {
                         let ptr = self.alloc_ptr_with_substs(global_val.ty, cid.instance.substs)?;
                         self.memory.mark_static(ptr.alloc_id);
-                        self.write_value_to_ptr(global_val.value, ptr, global_val.ty)?;
+                        self.write_value_to_ptr(global_val.value, PrimVal::Ptr(ptr), global_val.ty)?;
                         // see comment on `initialized` field
                         if global_val.initialized {
                             self.memory.mark_static_initalized(ptr.alloc_id, global_val.mutable)?;
@@ -1008,7 +1063,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             }
 
             Lvalue::Local { frame, local } => {
-                let dest = self.stack[frame].get_local(local);
+                let dest = self.stack[frame].get_local(local)?;
                 self.write_value_possibly_by_val(
                     src_val,
                     |this, val| this.stack[frame].set_local(local, val),
@@ -1035,7 +1090,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             //
             // Thus, it would be an error to replace the `ByRef` with a `ByVal`, unless we
             // knew for certain that there were no outstanding pointers to this allocation.
-            self.write_value_to_ptr(src_val, dest_ptr, dest_ty)?;
+            self.write_value_to_ptr(src_val, PrimVal::Ptr(dest_ptr), dest_ty)?;
 
         } else if let Value::ByRef(src_ptr) = src_val {
             // If the value is not `ByRef`, then we know there are no pointers to it
@@ -1053,7 +1108,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 write_dest(self, src_val);
             } else {
                 let dest_ptr = self.alloc_ptr(dest_ty)?;
-                self.copy(src_ptr, dest_ptr, dest_ty)?;
+                self.copy(PrimVal::Ptr(src_ptr), PrimVal::Ptr(dest_ptr), dest_ty)?;
                 write_dest(self, Value::ByRef(dest_ptr));
             }
         } else {
@@ -1067,16 +1122,16 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
     pub(super) fn write_value_to_ptr(
         &mut self,
         value: Value,
-        dest: Pointer,
+        dest: PrimVal,
         dest_ty: Ty<'tcx>,
     ) -> EvalResult<'tcx> {
         match value {
-            Value::ByRef(ptr) => self.copy(ptr, dest, dest_ty),
+            Value::ByRef(ptr) => self.copy(PrimVal::Ptr(ptr), dest, dest_ty),
             Value::ByVal(primval) => {
                 let size = self.type_size(dest_ty)?.expect("dest type must be sized");
                 self.memory.write_primval(dest, primval, size)
             }
-            Value::ByValPair(a, b) => self.write_pair_to_ptr(a, b, dest, dest_ty),
+            Value::ByValPair(a, b) => self.write_pair_to_ptr(a, b, dest.to_ptr()?, dest_ty),
         }
     }
 
@@ -1097,8 +1152,8 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         let field_1_ty = self.get_field_ty(ty, 1)?;
         let field_0_size = self.type_size(field_0_ty)?.expect("pair element type must be sized");
         let field_1_size = self.type_size(field_1_ty)?.expect("pair element type must be sized");
-        self.memory.write_primval(ptr.offset(field_0), a, field_0_size)?;
-        self.memory.write_primval(ptr.offset(field_1), b, field_1_size)?;
+        self.memory.write_primval(PrimVal::Ptr(ptr.offset(field_0, self.memory.layout)?), a, field_0_size)?;
+        self.memory.write_primval(PrimVal::Ptr(ptr.offset(field_1, self.memory.layout)?), b, field_1_size)?;
         Ok(())
     }
 
@@ -1209,46 +1264,47 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         }
     }
 
-    fn read_ptr(&mut self, ptr: Pointer, pointee_ty: Ty<'tcx>) -> EvalResult<'tcx, Value> {
+    pub(crate) fn read_ptr(&mut self, ptr: Pointer, pointee_ty: Ty<'tcx>) -> EvalResult<'tcx, Value> {
         let p = self.memory.read_ptr(ptr)?;
         if self.type_is_sized(pointee_ty) {
-            Ok(Value::ByVal(PrimVal::Ptr(p)))
+            Ok(Value::ByVal(p))
         } else {
             trace!("reading fat pointer extra of type {}", pointee_ty);
-            let extra = ptr.offset(self.memory.pointer_size());
+            let extra = ptr.offset(self.memory.pointer_size(), self.memory.layout)?;
             let extra = match self.tcx.struct_tail(pointee_ty).sty {
-                ty::TyDynamic(..) => PrimVal::Ptr(self.memory.read_ptr(extra)?),
+                ty::TyDynamic(..) => self.memory.read_ptr(extra)?,
                 ty::TySlice(..) |
-                ty::TyStr => self.memory.read_usize(extra)?,
+                ty::TyStr => PrimVal::from_u128(self.memory.read_usize(extra)? as u128),
                 _ => bug!("unsized primval ptr read from {:?}", pointee_ty),
             };
-            Ok(Value::ByValPair(PrimVal::Ptr(p), extra))
+            Ok(Value::ByValPair(p, extra))
         }
     }
 
     fn try_read_value(&mut self, ptr: Pointer, ty: Ty<'tcx>) -> EvalResult<'tcx, Option<Value>> {
         use syntax::ast::FloatTy;
 
-        if !ptr.is_concrete() {
+        if !ptr.has_concrete_offset() {
             return Ok(None);
         }
 
         let val = match ty.sty {
-            ty::TyBool => self.memory.read_bool(ptr)?,
+            ty::TyBool => {
+                if !self.memory.points_to_concrete(ptr, 1)? {
+                    self.memory.read_abstract(PrimVal::Ptr(ptr), 1)?
+                } else {
+                    self.memory.read_bool(ptr)?
+                }
+            }
             ty::TyChar => {
-                let c = self.memory.read_uint(ptr, 4)?;
-                match c {
-                    PrimVal::Bytes(b) => {
-                        match ::std::char::from_u32(b as u32) {
-                            Some(ch) => PrimVal::from_char(ch),
-                            None => return Err(EvalError::InvalidChar(b as u128)),
-                        }
+                if !self.memory.points_to_concrete(ptr, 4)? {
+                    self.memory.read_abstract(PrimVal::Ptr(ptr), 4)?
+                } else {
+                    let c = self.memory.read_uint(ptr, 4)? as u32;
+                    match ::std::char::from_u32(c) {
+                        Some(ch) => PrimVal::from_char(ch),
+                        None => return Err(EvalError::InvalidChar(c as u128)),
                     }
-                    PrimVal::Abstract(sbytes) => {
-                        // TODO handle the InvalidChar case
-                        PrimVal::Abstract(sbytes)
-                    }
-                    _ => unimplemented!(),
                 }
             }
 
@@ -1262,7 +1318,17 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     I128 => 16,
                     Is => self.memory.pointer_size(),
                 };
-                self.memory.read_int(ptr, size)?
+
+                if !self.memory.points_to_concrete(ptr, size)? {
+                    self.memory.read_abstract(PrimVal::Ptr(ptr), size)?
+                } else {
+                    // if we transmute a ptr to an isize, reading it back into a primval shouldn't panic
+                    // Due to read_ptr ignoring the sign, we need to jump around some hoops
+                    match self.memory.read_int(ptr, size) {
+                        Err(EvalError::ReadPointerAsBytes) if size == self.memory.pointer_size() => self.memory.read_ptr(ptr)?,
+                        other => PrimVal::from_i128(other?),
+                    }
+                }
             }
 
             ty::TyUint(uint_ty) => {
@@ -1275,13 +1341,18 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     U128 => 16,
                     Us => self.memory.pointer_size(),
                 };
-                self.memory.read_uint(ptr, size)?
+
+                if !self.memory.points_to_concrete(ptr, size)? {
+                    self.memory.read_abstract(PrimVal::Ptr(ptr), size)?
+                } else {
+                    PrimVal::from_u128(self.memory.read_uint(ptr, size)?)
+                }
             }
 
-            ty::TyFloat(FloatTy::F32) => self.memory.read_f32(ptr)?,
-            ty::TyFloat(FloatTy::F64) => self.memory.read_f64(ptr)?,
+            ty::TyFloat(FloatTy::F32) => PrimVal::from_f32(self.memory.read_f32(ptr)?),
+            ty::TyFloat(FloatTy::F64) => PrimVal::from_f64(self.memory.read_f64(ptr)?),
 
-            ty::TyFnPtr(_) => self.memory.read_ptr(ptr).map(PrimVal::Ptr)?,
+            ty::TyFnPtr(_) => self.memory.read_ptr(ptr)?,
             ty::TyRef(_, ref tam) |
             ty::TyRawPtr(ref tam) => return self.read_ptr(ptr, tam.ty).map(Some),
 
@@ -1293,9 +1364,9 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 if let CEnum { discr, signed, .. } = *self.type_layout(ty)? {
                     let size = discr.size().bytes();
                     if signed {
-                        self.memory.read_int(ptr, size)?
+                        PrimVal::from_i128(self.memory.read_int(ptr, size)?)
                     } else {
-                        self.memory.read_uint(ptr, size)?
+                        PrimVal::from_u128(self.memory.read_uint(ptr, size)?)
                     }
                 } else {
                     return Ok(None);
@@ -1340,7 +1411,6 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             (&ty::TyArray(_, length), &ty::TySlice(_)) => {
                 let ptr = src.read_ptr(&self.memory)?;
                 let len = PrimVal::from_u128(length as u128);
-                let ptr = PrimVal::Ptr(ptr);
                 self.write_value(Value::ByValPair(ptr, len), dest, dest_ty)
             }
             (&ty::TyDynamic(..), &ty::TyDynamic(..)) => {
@@ -1354,7 +1424,6 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 let trait_ref = self.tcx.erase_regions(&trait_ref);
                 let vtable = self.get_vtable(src_pointee_ty, trait_ref)?;
                 let ptr = src.read_ptr(&self.memory)?;
-                let ptr = PrimVal::Ptr(ptr);
                 let extra = PrimVal::Ptr(vtable);
                 self.write_value(Value::ByValPair(ptr, extra), dest, dest_ty)
             },
@@ -1403,7 +1472,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 };
 
                 // FIXME(solson)
-                let dest = self.force_allocation(dest)?.to_ptr();
+                let dest = self.force_allocation(dest)?.to_ptr()?;
                 let iter = src_fields.zip(dst_fields).enumerate();
                 for (i, (src_f, dst_f)) in iter {
                     let src_fty = monomorphize_field_ty(self.tcx, src_f, substs_a);
@@ -1413,10 +1482,10 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     }
                     let src_field_offset = self.get_field_offset(src_ty, i)?.bytes();
                     let dst_field_offset = self.get_field_offset(dest_ty, i)?.bytes();
-                    let src_f_ptr = src_ptr.offset(src_field_offset);
-                    let dst_f_ptr = dest.offset(dst_field_offset);
+                    let src_f_ptr = src_ptr.offset(src_field_offset, self.memory.layout)?;
+                    let dst_f_ptr = dest.offset(dst_field_offset, self.memory.layout)?;
                     if src_fty == dst_fty {
-                        self.copy(src_f_ptr, dst_f_ptr, src_fty)?;
+                        self.copy(PrimVal::Ptr(src_f_ptr), PrimVal::Ptr(dst_f_ptr), src_fty)?;
                     } else {
                         self.unsize_into(Value::ByRef(src_f_ptr), src_fty, Lvalue::from_ptr(dst_f_ptr), dst_fty)?;
                     }
@@ -1438,14 +1507,18 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             write!(msg, ":").unwrap();
 
             match self.stack[frame].get_local(local) {
-                Value::ByRef(ptr) => {
+                Err(err) => {
+                    panic!("Failed to access local: {:?}", err);
+                }
+                Ok(Value::ByRef(ptr)) => {
+                    write!(msg, " by ref:").unwrap();
                     allocs.push(ptr.alloc_id);
                 }
-                Value::ByVal(val) => {
+                Ok(Value::ByVal(val)) => {
                     write!(msg, " {:?}", val).unwrap();
                     if let PrimVal::Ptr(ptr) = val { allocs.push(ptr.alloc_id); }
                 }
-                Value::ByValPair(val1, val2) => {
+                Ok(Value::ByValPair(val1, val2)) => {
                     write!(msg, " ({:?}, {:?})", val1, val2).unwrap();
                     if let PrimVal::Ptr(ptr) = val1 { allocs.push(ptr.alloc_id); }
                     if let PrimVal::Ptr(ptr) = val2 { allocs.push(ptr.alloc_id); }
@@ -1479,7 +1552,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
     ) -> EvalResult<'tcx>
         where F: FnOnce(&mut Self, Value) -> EvalResult<'tcx, Value>,
     {
-        let val = self.stack[frame].get_local(local);
+        let val = self.stack[frame].get_local(local)?;
         let new_val = f(self, val)?;
         self.stack[frame].set_local(local, new_val);
         // FIXME(solson): Run this when setting to Undef? (See previous version of this code.)
@@ -1491,9 +1564,9 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
 }
 
 impl<'tcx> Frame<'tcx> {
-    pub fn get_local(&self, local: mir::Local) -> Value {
+    pub fn get_local(&self, local: mir::Local) -> EvalResult<'tcx, Value> {
         // Subtract 1 because we don't store a value for the ReturnPointer, the local with index 0.
-        self.locals[local.index() - 1]
+        Ok(self.locals[local.index() - 1])
     }
 
     fn set_local(&mut self, local: mir::Local, value: Value) {

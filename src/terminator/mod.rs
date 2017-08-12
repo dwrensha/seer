@@ -111,7 +111,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 let (fn_def, sig) = match func_ty.sty {
                     ty::TyFnPtr(sig) => {
                         let fn_ptr = self.eval_operand_to_primval(func)?.to_ptr()?;
-                        let instance = self.memory.get_fn(fn_ptr.alloc_id)?;
+                        let instance = self.memory.get_fn(fn_ptr)?;
                         let instance_ty = instance.def.def_ty(self.tcx);
                         let instance_ty = self.monomorphize(instance_ty, instance.substs);
                         match instance_ty.sty {
@@ -416,7 +416,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                                 match arg_val {
                                     Value::ByRef(ptr) => {
                                         for ((offset, ty), arg_local) in offsets.zip(fields).zip(arg_locals) {
-                                            let arg = Value::ByRef(ptr.offset(offset));
+                                            let arg = Value::ByRef(ptr.offset(offset, self.memory.layout)?);
                                             let dest = self.eval_lvalue(&mir::Lvalue::Local(arg_local))?;
                                             trace!("writing arg {:?} to {:?} (type: {})", arg, dest, ty);
                                             self.write_value(arg, dest, ty)?;
@@ -494,8 +494,8 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             ty::InstanceDef::Virtual(_, idx) => {
                 let ptr_size = self.memory.pointer_size();
                 let (_, vtable) = self.eval_operand(&arg_operands[0])?.expect_ptr_vtable_pair(&self.memory)?;
-                let fn_ptr = self.memory.read_ptr(vtable.offset(ptr_size * (idx as u64 + 3)))?;
-                let instance = self.memory.get_fn(fn_ptr.alloc_id)?;
+                let fn_ptr = self.memory.read_ptr(vtable.offset(ptr_size * (idx as u64 + 3), self.memory.layout)?)?;
+                let instance = self.memory.get_fn(fn_ptr.to_ptr()?)?;
                 let mut arg_operands = arg_operands.to_vec();
                 let ty = self.operand_ty(&arg_operands[0]);
                 let ty = self.get_field_ty(ty, 0)?;
@@ -557,14 +557,15 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                         let _ = sig.output();
 
                         // Write `Ok(num_bytes)` to the return value.
-                        let dest_ptr = self.force_allocation(lval)?.to_ptr();
+                        let dest_ptr = self.force_allocation(lval)?.to_ptr()?;
 
                         let usize_bytes = self.memory.pointer_size();
 
                         // FIXME make this more robust
                         self.memory.write_uint(dest_ptr, 0, usize_bytes)?; // discriminant = Ok
                         self.memory.write_uint(
-                            dest_ptr.offset(usize_bytes), num_bytes, usize_bytes)?; // payload
+                            dest_ptr.offset(usize_bytes, self.memory.layout)?,
+                            num_bytes, usize_bytes)?; // payload
 
                         self.goto_block(block);
                         return Ok(true);
@@ -590,13 +591,10 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             }
             Err(other) => return Err(other),
         };
+
         let (return_lvalue, return_to_block) = match destination {
             Some((lvalue, block)) => (lvalue, StackPopCleanup::Goto(block)),
-            None => {
-                // FIXME(solson)
-                let lvalue = Lvalue::from_ptr(Pointer::never_ptr());
-                (lvalue, StackPopCleanup::None)
-            }
+            None => (Lvalue::undef(), StackPopCleanup::None),
         };
 
         self.push_stack_frame(
@@ -618,12 +616,12 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         let discr_val = match *adt_layout {
             General { discr, .. } | CEnum { discr, signed: false, .. } => {
                 let discr_size = discr.size().bytes();
-                self.memory.read_uint(adt_ptr, discr_size)?.to_u128()?
+                self.memory.read_uint(adt_ptr, discr_size)?
             }
 
             CEnum { discr, signed: true, .. } => {
                 let discr_size = discr.size().bytes();
-                self.memory.read_int(adt_ptr, discr_size)?.to_u128()?
+                self.memory.read_int(adt_ptr, discr_size)? as u128
             }
 
             RawNullablePointer { nndiscr, value } => {
@@ -634,7 +632,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
 
             StructWrappedNullablePointer { nndiscr, ref discrfield, .. } => {
                 let (offset, ty) = self.nonnull_offset_and_ty(adt_ty, nndiscr, discrfield)?;
-                let nonnull = adt_ptr.offset(offset.bytes());
+                let nonnull = adt_ptr.offset(offset.bytes(), self.memory.layout)?;
                 trace!("struct wrapped nullable pointer type: {}", ty);
                 // only the pointer part of a fat pointer is used for this space optimization
                 let discr_size = self.type_size(ty)?.expect("bad StructWrappedNullablePointer discrfield");
@@ -652,8 +650,8 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
     fn read_nonnull_discriminant_value(&self, ptr: Pointer, nndiscr: u128, discr_size: u64) -> EvalResult<'tcx, u128> {
         trace!("read_nonnull_discriminant_value: {:?}, {}, {}", ptr, nndiscr, discr_size);
         let not_null = match self.memory.read_uint(ptr, discr_size) {
-            Ok(p) => p.to_u64()? != 0,
-            Err(EvalError::ReadPointerAsBytes) => true,
+            Ok(0) => false,
+            Ok(_) | Err(EvalError::ReadPointerAsBytes) => true,
             Err(e) => return Err(e),
         };
         assert!(nndiscr == 0 || nndiscr == 1);
@@ -706,7 +704,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             }
             "alloc::allocator::Layout::from_size_align" => {
                 let (lval, block) = destination.expect("from_size_align() does not diverge");
-                let dest_ptr = self.force_allocation(lval)?.to_ptr();
+                let dest_ptr = self.force_allocation(lval)?.to_ptr()?;
 
                 let usize = self.tcx.types.usize;
                 let size = self.value_to_primval(args[0], usize)?.to_u128()?;
@@ -726,8 +724,10 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 self.memory.write_uint(dest_ptr, 1, usize_bytes)?; // discriminant = Some
 
                 // payload
-                self.memory.write_uint(dest_ptr.offset(usize_bytes), size, usize_bytes)?;
-                self.memory.write_uint(dest_ptr.offset(usize_bytes * 2), align, usize_bytes)?;
+                self.memory.write_uint(dest_ptr.offset(usize_bytes, self.memory.layout)?,
+                                       size, usize_bytes)?;
+                self.memory.write_uint(dest_ptr.offset(usize_bytes * 2, self.memory.layout)?,
+                                       align, usize_bytes)?;
 
                 self.goto_block(block);
                 return Ok(());
@@ -740,7 +740,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 let ptr = self.memory.allocate(size, align)?;
 
                 let (lval, block) = destination.expect("alloc() does not diverge");
-                let dest_ptr = self.force_allocation(lval)?.to_ptr();
+                let dest_ptr = self.force_allocation(lval)?.to_ptr()?;
 
                 self.memory.write_ptr(dest_ptr, ptr)?;
                 self.goto_block(block);
@@ -754,8 +754,9 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 let ptr = self.memory.allocate(size, align)?;
                 self.memory.write_repeat(ptr, 0, size)?;
 
+
                 let (lval, block) = destination.expect("alloc() does not diverge");
-                let dest_ptr = self.force_allocation(lval)?.to_ptr();
+                let dest_ptr = self.force_allocation(lval)?.to_ptr()?;
 
                 self.memory.write_ptr(dest_ptr, ptr)?;
                 self.goto_block(block);
@@ -768,25 +769,26 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 let usize_bytes = self.memory.pointer_size();
                 let self_size = match args[0] {
                     Value::ByVal(PrimVal::Ptr(ptr)) => {
-                        self.memory.read_uint(ptr, usize_bytes)?.to_u64()?
+                        self.memory.read_uint(ptr, usize_bytes)?
                     }
                     _ => unreachable!(),
                 };
 
-                self.write_primval(lval, PrimVal::Bytes(self_size as u128), sig.output())?;
+                self.write_primval(lval, PrimVal::Bytes(self_size), sig.output())?;
                 self.goto_block(block);
                 return Ok(());
             }
 
             "alloc::allocator::Layout::repeat" => {
                 let (lval, block) = destination.expect("repeat() does not diverge");
-                let dest_ptr = self.force_allocation(lval)?.to_ptr();
+                let dest_ptr = self.force_allocation(lval)?.to_ptr()?;
 
                 let usize_bytes = self.memory.pointer_size();
                 let (self_size, self_align) = match args[0] {
                     Value::ByVal(PrimVal::Ptr(ptr)) => {
-                        (self.memory.read_uint(ptr, usize_bytes)?.to_u64()?,
-                         self.memory.read_uint(ptr.offset(usize_bytes), usize_bytes)?.to_u64()?)
+                        (self.memory.read_uint(ptr, usize_bytes)? as u64,
+                         self.memory.read_uint(ptr.offset(usize_bytes, self.memory.layout)?,
+                                               usize_bytes)? as u64)
                     }
                     _ => unreachable!(),
                 };
@@ -815,10 +817,13 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 self.memory.write_uint(dest_ptr, 1, usize_bytes)?; // discriminant = Some
 
                 // payload
-                self.memory.write_uint(dest_ptr.offset(usize_bytes), alloc_size as u128, usize_bytes)?;
-                self.memory.write_uint(dest_ptr.offset(usize_bytes * 2), self_align as u128, usize_bytes)?;
+                self.memory.write_uint(dest_ptr.offset(usize_bytes, self.memory.layout)?,
+                                       alloc_size as u128, usize_bytes)?;
+                self.memory.write_uint(dest_ptr.offset(usize_bytes * 2, self.memory.layout)?,
+                                       self_align as u128, usize_bytes)?;
                 self.memory.write_uint(
-                    dest_ptr.offset(usize_bytes * 3), padded_size as u128, usize_bytes)?;
+                    dest_ptr.offset(usize_bytes * 3, self.memory.layout)?,
+                    padded_size as u128, usize_bytes)?;
 
                 self.goto_block(block);
                 return Ok(());
@@ -826,7 +831,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
 
             "alloc::heap::::__rust_realloc" => {
                 let (lval, block) = destination.expect("realloc() does not diverge");
-                let dest_ptr = self.force_allocation(lval)?.to_ptr();
+                let dest_ptr = self.force_allocation(lval)?.to_ptr()?;
 
                 let ptr = match args[0] {
                     Value::ByVal(PrimVal::Ptr(p)) => p,
@@ -1032,12 +1037,15 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             }
 
             "getenv" => {
-                {
-                    let name_ptr = args[0].read_ptr(&self.memory)?;
+                let result = {
+                    let name_ptr = args[0].read_ptr(&self.memory)?.to_ptr()?;
                     let name = self.memory.read_c_str(name_ptr)?;
-                    info!("ignored env var request for `{:?}`", ::std::str::from_utf8(name));
-                }
-                self.write_value(Value::ByVal(PrimVal::Bytes(0)), dest, dest_ty)?;
+                    match self.env_vars.get(name) {
+                        Some(&var) => PrimVal::Ptr(var),
+                        None => PrimVal::Bytes(0),
+                    }
+                };
+                self.write_primval(dest, result, dest_ty)?;
                 self.goto_block(target);
             }
 
