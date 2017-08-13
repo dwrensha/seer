@@ -630,8 +630,8 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 self.read_nonnull_discriminant_value(adt_ptr, nndiscr as u128, discr_size)?
             }
 
-            StructWrappedNullablePointer { nndiscr, ref discrfield, .. } => {
-                let (offset, ty) = self.nonnull_offset_and_ty(adt_ty, nndiscr, discrfield)?;
+            StructWrappedNullablePointer { nndiscr, ref discrfield_source, .. } => {
+                let (offset, ty) = self.nonnull_offset_and_ty(adt_ty, nndiscr, discrfield_source)?;
                 let nonnull = adt_ptr.offset(offset.bytes(), self.memory.layout)?;
                 trace!("struct wrapped nullable pointer type: {}", ty);
                 // only the pointer part of a fat pointer is used for this space optimization

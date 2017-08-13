@@ -546,7 +546,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                         }
                     }
 
-                    StructWrappedNullablePointer { nndiscr, ref nonnull, ref discrfield, .. } => {
+                    StructWrappedNullablePointer { nndiscr, ref nonnull, ref discrfield_source, .. } => {
                         if let mir::AggregateKind::Adt(_, variant, _, _) = **kind {
                             if nonnull.packed {
                                 let ptr = self.force_allocation(dest)?.to_ptr_and_extra().0.to_ptr()?;
@@ -559,7 +559,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                                     let operand_ty = self.operand_ty(operand);
                                     assert_eq!(self.type_size(operand_ty)?, Some(0));
                                 }
-                                let (offset, ty) = self.nonnull_offset_and_ty(dest_ty, nndiscr, discrfield)?;
+                                let (offset, ty) = self.nonnull_offset_and_ty(dest_ty, nndiscr, discrfield_source)?;
 
                                 // FIXME(solson)
                                 let dest = self.force_allocation(dest)?.to_ptr()?;
