@@ -836,6 +836,10 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
 
             ty::TyRef(_, ref tam) |
             ty::TyRawPtr(ref tam) => self.get_fat_field(tam.ty, field_index),
+
+            ty::TyClosure(def_id, ref closure_substs) =>
+                Ok(closure_substs.upvar_tys(def_id, self.tcx).nth(field_index).unwrap()),
+
             _ => Err(EvalError::Unimplemented(format!("can't handle type: {:?}, {:?}", ty, ty.sty))),
         }
     }
