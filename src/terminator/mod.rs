@@ -358,6 +358,9 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 }
                 Ok(None)
             }
+            ty::InstanceDef::CloneShim(..) |
+            ty::InstanceDef::FnPtrShim(..) |
+            ty::InstanceDef::DropGlue(..) |
             ty::InstanceDef::Item(_) => {
                 match sig.abi {
                     Abi::C => {
@@ -440,54 +443,6 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                         }
                     }
                     _ => unimplemented!(),
-                }
-                Ok(None)
-            },
-            ty::InstanceDef::DropGlue(..) => {
-                assert_eq!(arg_operands.len(), 1);
-                assert_eq!(sig.abi, Abi::Rust);
-                let val = self.eval_operand(&arg_operands[0])?;
-                let ty = self.operand_ty(&arg_operands[0]);
-                let (_, target) = destination.expect("diverging drop glue");
-                self.goto_block(target);
-                // FIXME: deduplicate these matches
-                let pointee_type = match ty.sty {
-                    ty::TyRawPtr(ref tam) |
-                    ty::TyRef(_, ref tam) => tam.ty,
-                    ty::TyAdt(ref def, _) if def.is_box() => ty.boxed_ty(),
-                    _ => bug!("can only deref pointer types"),
-                };
-                self.drop(val, instance, pointee_type, span)?;
-                Ok(None)
-            },
-            ty::InstanceDef::FnPtrShim(..) => {
-                trace!("ABI: {}", sig.abi);
-                let mut args = Vec::new();
-                for arg in arg_operands {
-                    let arg_val = self.eval_operand(arg)?;
-                    let arg_ty = self.operand_ty(arg);
-                    args.push((arg_val, arg_ty));
-                }
-                if self.eval_fn_call_inner(
-                    instance,
-                    destination,
-                    arg_operands,
-                    span,
-                    sig,
-                )? {
-                    return Ok(None);
-                }
-                let arg_locals = self.frame().mir.args_iter();
-                match sig.abi {
-                    Abi::Rust => {
-                        args.remove(0);
-                    },
-                    Abi::RustCall => {},
-                    _ => unimplemented!(),
-                };
-                for (arg_local, (arg_val, arg_ty)) in arg_locals.zip(args) {
-                    let dest = self.eval_lvalue(&mir::Lvalue::Local(arg_local))?;
-                    self.write_value(arg_val, dest, arg_ty)?;
                 }
                 Ok(None)
             },
