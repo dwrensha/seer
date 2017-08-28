@@ -3,8 +3,6 @@
     rustc_private,
 )]
 
-extern crate core;
-
 // From rustc.
 #[macro_use]
 extern crate log;
@@ -12,7 +10,6 @@ extern crate log_settings;
 extern crate getopts;
 #[macro_use]
 extern crate rustc;
-extern crate rustc_borrowck;
 extern crate rustc_const_math;
 extern crate rustc_data_structures;
 extern crate rustc_driver;
