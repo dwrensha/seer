@@ -714,6 +714,23 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
 
         self.check_relocation_edges(src, size)?;
 
+        // first copy the relocations to a temporary buffer, because
+        // `get_bytes_mut` will clear the relocations, which is correct,
+        // since we don't want to keep any relocations at the target.
+
+        let relocations: Vec<_> =
+            match (src.offset, dest.offset) {
+                (PointerOffset::Concrete(src_offset), PointerOffset::Concrete(dest_offset)) => {
+                    self.relocations(src, size)?
+                    .map(|(&offset, &alloc_id)| {
+                        // Update relocation offsets for the new positions in the destination allocation.
+                        (offset + dest_offset - src_offset, alloc_id)
+                    })
+                        .collect()
+                }
+                _ => unimplemented!(),
+            };
+
         let src_bytes = self.get_bytes_unchecked(src, size, align)?.as_ptr();
         let dest_bytes = self.get_bytes_mut(dest, size, align)?.as_mut_ptr();
 
@@ -730,7 +747,8 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
         }
 
         self.copy_undef_mask(src, dest, size)?;
-        self.copy_relocations(src, dest, size)?;
+        // copy back the relocations
+        self.get_mut(dest.alloc_id)?.relocations.extend(relocations);
 
         Ok(())
     }
@@ -1274,22 +1292,6 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
         Ok(())
     }
 
-    fn copy_relocations(&mut self, src: Pointer, dest: Pointer, size: u64) -> EvalResult<'tcx> {
-        match (src.offset, dest.offset) {
-            (PointerOffset::Concrete(src_offset),
-             PointerOffset::Concrete(dest_offset)) => {
-                let relocations: Vec<_> = self.relocations(src, size)?
-                .map(|(&offset, &alloc_id)| {
-                    // Update relocation offsets for the new positions in the
-                    // destination allocation.
-                    (offset + dest_offset - src_offset, alloc_id)
-                }).collect();
-                self.get_mut(dest.alloc_id)?.relocations.extend(relocations);
-                Ok(())
-            }
-            _ => unimplemented!(),
-        }
-    }
 }
 
 /// Undefined bytes
