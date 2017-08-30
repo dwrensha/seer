@@ -171,6 +171,8 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                             },
                             mir::AssertMessage::Math(ref err) =>
                                 Err(EvalError::Math(terminator.source_info.span, err.clone())),
+                            mir::AssertMessage::GeneratorResumedAfterReturn => unimplemented!(),
+                            mir::AssertMessage::GeneratorResumedAfterPanic => unimplemented!(),
                         }
                     }
                 } else {
@@ -210,6 +212,8 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                             },
                             mir::AssertMessage::Math(ref err) =>
                                 EvalError::Math(terminator.source_info.span, err.clone()),
+                            mir::AssertMessage::GeneratorResumedAfterReturn => unimplemented!(),
+                            mir::AssertMessage::GeneratorResumedAfterPanic => unimplemented!(),
                         };
 
                         finish_steps.push(
@@ -226,6 +230,8 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             DropAndReplace { .. } => unimplemented!(),
             Resume => unimplemented!(),
             Unreachable => Err(EvalError::Unreachable),
+            Yield { .. } => unimplemented!(),
+            GeneratorDrop => unimplemented!(),
         }
     }
 
