@@ -1,0 +1,8 @@
+[package]
+name = "test-utf8"
+version = "0.1.0"
+authors = ["David Renshaw"]
+
+[[bin]]
+name = "test-utf8"
+path = "from_utf8.rs"

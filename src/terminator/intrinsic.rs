@@ -33,6 +33,11 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
 
         let intrinsic_name = &self.tcx.item_name(instance.def_id()).as_str()[..];
         match intrinsic_name {
+            "align_offset" => {
+                // TODO: more sophisticated analysis
+                self.write_primval(dest, PrimVal::Bytes(u128::max_value()), dest_ty)?;
+            },
+
             "add_with_overflow" =>
                 self.intrinsic_with_overflow(mir::BinOp::Add, &args[0], &args[1], dest, dest_ty)?,
 
