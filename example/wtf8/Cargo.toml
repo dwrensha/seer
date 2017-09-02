@@ -1,0 +1,7 @@
+[package]
+name = "test-wtf8"
+version = "0.1.0"
+authors = ["David Renshaw"]
+
+[dependencies]
+wtf8 = "0.0.3"
