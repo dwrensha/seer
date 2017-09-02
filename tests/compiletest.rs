@@ -6,7 +6,7 @@ use std::io::Write;
 fn compile_fail(sysroot: &Path) {
     let flags = format!("--emit-error --sysroot {} -Dwarnings", sysroot.to_str().expect("non utf8 path"));
     for_all_targets(&sysroot, |target| {
-        let mut config = compiletest::default_config();
+        let mut config = compiletest::Config::default();
         config.host_rustcflags = Some(flags.clone());
         config.mode = "compile-fail".parse().expect("Invalid mode");
         config.run_lib_path = Path::new(sysroot).join("lib").join("rustlib").join(&target).join("lib");
@@ -19,7 +19,7 @@ fn compile_fail(sysroot: &Path) {
 }
 
 fn run_pass() {
-    let mut config = compiletest::default_config();
+    let mut config = compiletest::Config::default();
     config.mode = "run-pass".parse().expect("Invalid mode");
     config.src_base = PathBuf::from("tests/run-pass".to_string());
     config.target_rustcflags = Some("-Dwarnings".to_string());
@@ -28,7 +28,7 @@ fn run_pass() {
 }
 
 fn miri_pass(path: &str, target: &str, host: &str) {
-    let mut config = compiletest::default_config();
+    let mut config = compiletest::Config::default();
     config.mode = "mir-opt".parse().expect("Invalid mode");
     config.src_base = PathBuf::from(path);
     config.target = target.to_owned();
