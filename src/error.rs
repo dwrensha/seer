@@ -32,6 +32,7 @@ pub enum EvalError<'tcx> {
     ExecuteMemory,
     ArrayIndexOutOfBounds(Span, u64, u64),
     Math(Span, ConstMathErr),
+    Intrinsic(String),
     OverflowingMath,
     InvalidChar(u128),
     OutOfMemory {
@@ -101,6 +102,8 @@ impl<'tcx> Error for EvalError<'tcx> {
                 "array index out of bounds",
             EvalError::Math(..) =>
                 "mathematical operation failed",
+            EvalError::Intrinsic(..) =>
+                "intrinsic failed",
             EvalError::OverflowingMath =>
                 "attempted to do overflowing math",
             EvalError::NoMirFor(..) =>
@@ -214,6 +217,7 @@ pub enum StaticEvalError {
     ExecuteMemory,
     ArrayIndexOutOfBounds(Span, u64, u64),
     Math(Span, ConstMathErr),
+    Intrinsic(String),
     OverflowingMath,
     InvalidChar(u128),
     OutOfMemory {
@@ -282,6 +286,8 @@ impl <'tcx> From<EvalError<'tcx>> for StaticEvalError {
                 StaticEvalError::ArrayIndexOutOfBounds(a, b, c),
             EvalError::Math(span, e) =>
                 StaticEvalError::Math(span, e),
+            EvalError::Intrinsic(s) =>
+                StaticEvalError::Intrinsic(s),
             EvalError::OverflowingMath =>
                 StaticEvalError::OverflowingMath,
             EvalError::NoMirFor(ref s) =>
