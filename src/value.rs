@@ -101,18 +101,16 @@ impl<'a, 'tcx: 'a> Value {
         }
     }
 
-    pub(super) fn expect_slice(&self, mem: &Memory<'a, 'tcx>) -> EvalResult<'tcx, (PrimVal, u64)> {
+    pub(super) fn expect_slice(&self, mem: &Memory<'a, 'tcx>) -> EvalResult<'tcx, (PrimVal, PrimVal)> {
         use self::Value::*;
         match *self {
             ByRef(ref_ptr) => {
                 let ptr = mem.read_ptr(ref_ptr)?;
                 let len = mem.read_usize(ref_ptr.offset(mem.pointer_size(), mem.layout)?)?;
-                Ok((ptr, len))
+                Ok((ptr, PrimVal::from_u128(len as u128)))
             },
-            ByValPair(ptr, val) => {
-                let len = val.to_u128()?;
-                assert_eq!(len as u64 as u128, len);
-                Ok((ptr, len as u64))
+            ByValPair(ptr, len) => {
+                Ok((ptr, len))
             },
             _ => unimplemented!(),
         }

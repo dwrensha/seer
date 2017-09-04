@@ -30,7 +30,7 @@ pub enum Lvalue<'tcx> {
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum LvalueExtra {
     None,
-    Length(u64),
+    Length(PrimVal),
     Vtable(Pointer),
     DowncastVariant(usize),
 }
@@ -92,7 +92,12 @@ impl<'tcx> Lvalue<'tcx> {
 
             ty::TySlice(elem) => {
                 match self {
-                    Lvalue::Ptr { extra: LvalueExtra::Length(len), .. } => (elem, len),
+                    Lvalue::Ptr { extra: LvalueExtra::Length(len), .. } => {
+                        match len {
+                            PrimVal::Bytes(n) => (elem, n as u64),
+                            _ => unimplemented!(),
+                        }
+                    }
                     _ => bug!("elem_ty_and_len of a TySlice given non-slice lvalue: {:?}", self),
                 }
             }
@@ -447,7 +452,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 let elem_size = self.type_size(elem_ty)?.expect("slice element must be sized");
                 assert!(u64::from(from) <= n - u64::from(to));
                 let ptr = base_ptr.offset(u64::from(from) * elem_size, self.memory.layout)?;
-                let extra = LvalueExtra::Length(n - u64::from(to) - u64::from(from));
+                let extra = LvalueExtra::Length(PrimVal::from_u128((n - u64::from(to) - u64::from(from))as u128));
                 (ptr, extra)
             }
         };

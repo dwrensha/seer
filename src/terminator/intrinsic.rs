@@ -556,7 +556,10 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     let elem_size = self.type_size(elem_ty)?.expect("slice element must be sized") as u64;
                     let (_, len) = value.expect_slice(&self.memory)?;
                     let align = self.type_align(elem_ty)?;
-                    Ok((len * elem_size, align as u64))
+                    match len {
+                        PrimVal::Bytes(n) => Ok(((n as u64) * elem_size, align as u64)),
+                        _ => unimplemented!(),
+                    }
                 }
 
                 _ => bug!("size_of_val::<{:?}>", ty),

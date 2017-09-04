@@ -642,7 +642,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
 
                 let val = match extra {
                     LvalueExtra::None => Value::ByVal(ptr),
-                    LvalueExtra::Length(len) => Value::ByValPair(ptr, PrimVal::from_u128(len as u128)),
+                    LvalueExtra::Length(len) => Value::ByValPair(ptr, len),
                     LvalueExtra::Vtable(vtable) => Value::ByValPair(ptr, PrimVal::Ptr(vtable)),
                     LvalueExtra::DowncastVariant(..) =>
                         bug!("attempted to take a reference to an enum downcast lvalue"),
@@ -1278,7 +1278,14 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             let extra = match self.tcx.struct_tail(pointee_ty).sty {
                 ty::TyDynamic(..) => self.memory.read_ptr(extra)?,
                 ty::TySlice(..) |
-                ty::TyStr => PrimVal::from_u128(self.memory.read_usize(extra)? as u128),
+                ty::TyStr => {
+                    let usize_bytes = self.memory.pointer_size();
+                    if self.memory.points_to_concrete(extra, usize_bytes)? {
+                        PrimVal::from_u128(self.memory.read_usize(extra)? as u128)
+                    } else {
+                        self.memory.read_abstract(PrimVal::Ptr(extra), usize_bytes)?
+                    }
+                }
                 _ => bug!("unsized primval ptr read from {:?}", pointee_ty),
             };
             Ok(Value::ByValPair(p, extra))

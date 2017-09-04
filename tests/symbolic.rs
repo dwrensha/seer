@@ -143,3 +143,10 @@ fn symbolic_ptr_offset() {
         "tests/symbolic/ptr_offset.rs",
         vec![2, 4]);
 }
+
+#[test]
+fn symbolic_slice() {
+    expect_single_panic(
+        "tests/symbolic/slice.rs",
+        vec![35]);
+}

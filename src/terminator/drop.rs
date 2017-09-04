@@ -19,7 +19,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
 
         let val = match self.force_allocation(lval)? {
             Lvalue::Ptr { ptr, extra: LvalueExtra::Vtable(vtable) } => Value::ByValPair(ptr, PrimVal::Ptr(vtable)),
-            Lvalue::Ptr { ptr, extra: LvalueExtra::Length(len) } => Value::ByValPair(ptr, PrimVal::Bytes(len as u128)),
+            Lvalue::Ptr { ptr, extra: LvalueExtra::Length(len) } => Value::ByValPair(ptr, len),
             Lvalue::Ptr { ptr, extra: LvalueExtra::None } => Value::ByVal(ptr),
             _ => bug!("force_allocation broken"),
         };
