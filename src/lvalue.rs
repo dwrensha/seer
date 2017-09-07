@@ -386,7 +386,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 }
             }
 
-            Index(ref operand) => {
+            Index(local) => {
                 let base = self.eval_lvalue(&proj.base)?;
                 let base_ty = self.lvalue_ty(&proj.base);
                 // FIXME(solson)
@@ -395,9 +395,10 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
 
                 let (elem_ty, len) = base.elem_ty_and_len(base_ty);
                 let elem_size = self.type_size(elem_ty)?.expect("slice element must be sized");
-                let n_ptr = self.eval_operand(operand)?;
-                let usize = self.tcx.types.usize;
-                let primval = self.value_to_primval(n_ptr, usize)?;
+
+                let value = self.frame().get_local(local)?;
+                let ty = self.tcx.types.usize;
+                let primval = self.value_to_primval(value, ty)?;
                 if let PrimVal::Abstract(_sbytes) = primval {
                     // byte_offset = sbytes * elem_size
                     let byte_offset = self.memory.constraints.add_binop_constraint(
