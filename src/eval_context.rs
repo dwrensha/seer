@@ -1656,7 +1656,7 @@ fn fn_once_adapter_instance<'a, 'tcx>(
     debug!("fn_once_adapter_shim({:?}, {:?})",
            closure_did,
            substs);
-    let fn_once = tcx.lang_items.fn_once_trait().unwrap();
+    let fn_once = tcx.lang_items().fn_once_trait().unwrap();
     let call_once = tcx.associated_items(fn_once)
         .find(|it| it.kind == ty::AssociatedKind::Method)
         .unwrap().def_id;
@@ -1736,7 +1736,7 @@ pub fn resolve<'a, 'tcx>(
                 ty::InstanceDef::Intrinsic(def_id)
             }
             _ => {
-                if Some(def_id) == tcx.lang_items.drop_in_place_fn() {
+                if Some(def_id) == tcx.lang_items().drop_in_place_fn() {
                     let ty = substs.type_at(0);
                     if needs_drop_glue(tcx, ty) {
                         debug!(" => nontrivial drop glue");
@@ -1820,7 +1820,7 @@ fn resolve_associated_item<'a, 'tcx>(
             ty::Instance::new(def_id, substs)
         }
         ::rustc::traits::VtableClosure(closure_data) => {
-            let trait_closure_kind = tcx.lang_items.fn_trait_kind(trait_id).unwrap();
+            let trait_closure_kind = tcx.lang_items().fn_trait_kind(trait_id).unwrap();
             resolve_closure(tcx, closure_data.closure_def_id, closure_data.substs,
                             trait_closure_kind)
         }
@@ -1837,7 +1837,7 @@ fn resolve_associated_item<'a, 'tcx>(
                 substs: rcvr_substs
             }
         }
-        ::rustc::traits::VtableBuiltin(..) if Some(trait_id) == tcx.lang_items.clone_trait() => {
+        ::rustc::traits::VtableBuiltin(..) if Some(trait_id) == tcx.lang_items().clone_trait() => {
             ty::Instance {
                 def: ty::InstanceDef::CloneShim(def_id, trait_ref.self_ty()),
                 substs: rcvr_substs,

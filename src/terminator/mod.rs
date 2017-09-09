@@ -836,11 +836,11 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         dest_ty: Ty<'tcx>,
         target: mir::BasicBlock,
     ) -> EvalResult<'tcx, Option<Vec<FinishStep<'tcx>>>> {
-        let name = self.tcx.item_name(def_id);
         let attrs = self.tcx.get_attrs(def_id);
-        let link_name = attr::first_attr_value_str_by_name(&attrs, "link_name")
-            .unwrap_or(name)
-            .as_str();
+        let link_name = match attr::first_attr_value_str_by_name(&attrs, "link_name") {
+            Some(name) => name.as_str(),
+            None => self.tcx.item_name(def_id),
+        };
 
         let args_res: EvalResult<Vec<Value>> = args.iter()
             .map(|arg| self.eval_operand(arg))
