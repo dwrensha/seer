@@ -1,0 +1,13 @@
+# Cargo.toml
+
+[package]
+name = "test-syn"
+version = "0.0.1"
+
+[dependencies.syn]
+git = "https://github.com/dtolnay/syn"
+features = ["parsing", "full"]
+
+[[bin]]
+name = "parse_file"
+path = "parse_file.rs"
