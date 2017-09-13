@@ -71,13 +71,13 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             TyUint(UintTy::U128) => Ok(PrimVal::Bytes(v)),
 
             TyInt(IntTy::Is) => {
-                let int_ty = self.tcx.sess.target.int_type;
+                let int_ty = self.tcx.sess.target.isize_ty;
                 let ty = self.tcx.mk_mach_int(int_ty);
                 self.cast_int(v, ty, negative)
             }
 
             TyUint(UintTy::Us) => {
-                let uint_ty = self.tcx.sess.target.uint_type;
+                let uint_ty = self.tcx.sess.target.usize_ty;
                 let ty = self.tcx.mk_mach_uint(uint_ty);
                 self.cast_int(v, ty, negative)
             }

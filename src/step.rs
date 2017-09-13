@@ -9,6 +9,7 @@ use rustc::mir;
 use rustc::traits::Reveal;
 use rustc::ty::layout::Layout;
 use rustc::ty::{subst, self};
+use rustc::middle::const_val::ConstVal;
 
 use error::{EvalResult, EvalError};
 use eval_context::{EvalContext, StackPopCleanup};
@@ -210,10 +211,10 @@ impl<'a, 'b, 'tcx> Visitor<'tcx> for ConstantExtractor<'a, 'b, 'tcx> {
         self.super_constant(constant, location);
         match constant.literal {
             // already computed by rustc
-            mir::Literal::Value { .. } => {}
-            mir::Literal::Item { def_id, substs } => {
+            mir::Literal::Value { value: &ty::Const { val: ConstVal::Unevaluated(def_id, substs), .. } } => {
                 self.global_item(def_id, substs, constant.span, true);
-            },
+            }
+            mir::Literal::Value { .. } => {}
             mir::Literal::Promoted { index } => {
                 let cid = GlobalId {
                     instance: self.instance,
