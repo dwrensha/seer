@@ -1,5 +1,6 @@
 use getopts;
 use rustc::session::Session;
+use rustc::middle::cstore::CrateStore;
 use rustc_driver::{self, Compilation, CompilerCalls, RustcDefaultCalls};
 use rustc_driver::driver::{CompileState, CompileController};
 use rustc_errors;
@@ -37,11 +38,12 @@ impl<'a> CompilerCalls<'a> for SeerCompilerCalls {
         &mut self,
         matches: &getopts::Matches,
         sess: &Session,
+        cstore: &CrateStore,
         input: &Input,
         odir: &Option<PathBuf>,
         ofile: &Option<PathBuf>
     ) -> Compilation {
-        self.0.late_callback(matches, sess, input, odir, ofile)
+        self.0.late_callback(matches, sess, cstore, input, odir, ofile)
     }
     fn build_controller(&mut self, sess: &Session, matches: &getopts::Matches) -> CompileController<'a> {
         let mut control = self.0.build_controller(sess, matches);
