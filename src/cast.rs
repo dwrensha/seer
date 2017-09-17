@@ -8,7 +8,7 @@ use value::PrimVal;
 
 impl<'a, 'tcx> EvalContext<'a, 'tcx> {
     pub(super) fn cast_primval(
-        &self,
+        &mut self,
         val: PrimVal,
         src_ty: Ty<'tcx>,
         dest_ty: Ty<'tcx>
@@ -28,6 +28,14 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     // TODO(optimization): check to see if the cast has made
                     // the value concrete.
                     Ok(PrimVal::Abstract(sbytes))
+                } else if kind == Bool && dest_kind.is_int() {
+                    let dest_kind = self.ty_to_primval_kind(dest_ty)?;
+                    let primval = self.memory.constraints.add_if_then_else(
+                        val,
+                        dest_kind,
+                        PrimVal::Bytes(1),
+                        PrimVal::Bytes(0));
+                    Ok(primval)
                 } else {
                     unimplemented!()
                 }

@@ -150,3 +150,11 @@ fn symbolic_slice() {
         "tests/symbolic/slice.rs",
         vec![35]);
 }
+
+#[test]
+fn symbolic_cast_bool() {
+    expect_single_panic(
+        "tests/symbolic/bool_cast.rs",
+        vec![18, 102]);
+
+}

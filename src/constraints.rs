@@ -11,6 +11,20 @@ enum VarType {
     Array, // Array of BitVec8, indexed by BitVec64?
 }
 
+impl VarType {
+    fn from_prim_val_kind(kind: PrimValKind) -> Self {
+        use value::PrimValKind::*;
+        match kind {
+            Bool => VarType::Bool,
+            U8 | I8 => VarType::BitVec8,
+            U16 | I16 => VarType::BitVec8,
+            U32 | I32 => VarType::BitVec8,
+            U64 | I64 => VarType::BitVec8,
+            _ => unimplemented!(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 enum VarOrigin {
     StdIn, // abstract byte read from stdin
@@ -46,6 +60,15 @@ pub enum Constraint {
     },
 
     Compare { op: mir::BinOp, kind: PrimValKind, lhs: PrimVal, rhs: PrimVal, },
+
+    // lhs = if discriminant then then_branch else else_branch
+    IfThenElse {
+        discriminant: PrimVal,
+        kind: PrimValKind,
+        then_branch: PrimVal,
+        else_branch: PrimVal,
+        lhs: PrimVal,
+    },
 
     /// array[index] = value
     ArrayElement {
@@ -184,6 +207,33 @@ impl ConstraintContext {
         self.push_constraint(constraint);
 
         primval
+    }
+
+    pub fn add_if_then_else(
+        &mut self,
+        discriminant: PrimVal,
+        kind: PrimValKind,
+        then_branch: PrimVal,
+        else_branch: PrimVal
+    ) -> PrimVal {
+        let var_type = VarType::from_prim_val_kind(kind);
+
+        let num_bytes = kind.num_bytes();
+        let mut buffer = [SByte::Concrete(0); 8];
+        for idx in 0..num_bytes {
+            buffer[idx] = SByte::Abstract(self.allocate_abstract_var(var_type, VarOrigin::Inner));
+        }
+
+        let lhs = PrimVal::Abstract(buffer);
+        self.push_constraint(Constraint::IfThenElse {
+            discriminant,
+            kind,
+            then_branch,
+            else_branch,
+            lhs,
+        });
+
+        lhs
     }
 
     pub fn new_array(&mut self) -> AbstractVariable {
@@ -393,6 +443,14 @@ impl ConstraintContext {
                         unimplemented!()
                     }
                 }
+            }
+
+            Constraint::IfThenElse { discriminant, kind, then_branch, else_branch, lhs } => {
+                self.primval_to_ast(&ctx, lhs, kind)._eq(
+                    &self.primval_to_ast(&ctx, discriminant, PrimValKind::Bool).ite(
+                        &self.primval_to_ast(&ctx, then_branch, kind),
+                        &self.primval_to_ast(&ctx, else_branch, kind)))
+
             }
 
             Constraint::ArrayElement { array, index, value, } => {
