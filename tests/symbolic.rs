@@ -158,3 +158,11 @@ fn symbolic_cast_bool() {
         vec![18, 102]);
 
 }
+
+#[test]
+fn symbolic_neg() {
+    expect_single_panic(
+        "tests/symbolic/neg.rs",
+        vec![75]);
+
+}

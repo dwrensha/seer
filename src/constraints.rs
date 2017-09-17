@@ -598,9 +598,7 @@ impl ConstraintContext {
     {
         match operator {
             mir::UnOp::Not => val.not(),
-            mir::UnOp::Neg => {
-                unimplemented!()
-            }
+            mir::UnOp::Neg => val.bvneg(),
         }
     }
 }

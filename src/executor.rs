@@ -123,8 +123,25 @@ impl <'a, 'tcx: 'a> Executor<'a, 'tcx> {
         self.queue.pop_front()
     }
 
+    // return true if we should continue with other executions
+    fn report_error(&mut self, ecx: &EvalContext, e: EvalError) -> bool {
+        if self.config.emit_error {
+            report(self.tcx, &ecx, e.clone());
+        }
+
+        match self.config.consumer {
+            Some(ref f) => {
+                (&mut *f.borrow_mut())(ExecutionComplete {
+                    input: ecx.memory.constraints.get_satisfying_values(),
+                    result: Err(e.into())
+                })
+            }
+            None => true,
+        }
+    }
+
     pub fn run(&mut self) {
-        while let Some(mut ecx) = self.pop_eval_context() {
+        'main_loop: while let Some(mut ecx) = self.pop_eval_context() {
             match ecx.step() {
                 Ok((true, None)) => {
                     self.push_eval_context(ecx)
@@ -148,8 +165,10 @@ impl <'a, 'tcx: 'a> Executor<'a, 'tcx> {
                                         }
                                         cx.goto_block(goto_block);
                                     }
-                                    FinishStepVariant::Error(_) => {
-                                        unimplemented!()
+                                    FinishStepVariant::Error(ref e) => {
+                                        if !self.report_error(&cx, e.clone()) {
+                                            break 'main_loop;
+                                        }
                                     }
                                 }
                             }
@@ -172,25 +191,12 @@ impl <'a, 'tcx: 'a> Executor<'a, 'tcx> {
                         self.tcx.sess.err("the evaluated program leaked memory");
                     }
                     if !go_on {
-                        break
+                        break 'main_loop;
                     }
                 }
                 Err(e) => {
-                    if self.config.emit_error {
-                        report(self.tcx, &ecx, e.clone());
-                    }
-
-                    match self.config.consumer {
-                        Some(ref f) => {
-                            let go_on = (&mut *f.borrow_mut())(ExecutionComplete {
-                                input: ecx.memory.constraints.get_satisfying_values(),
-                                result: Err(e.into())
-                            });
-                            if !go_on {
-                                break
-                            }
-                        }
-                        None => (),
+                    if !self.report_error(&ecx, e) {
+                        break;
                     }
                 }
             }

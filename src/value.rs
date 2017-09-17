@@ -333,6 +333,7 @@ impl PrimValKind {
     pub fn num_bytes(self) -> usize {
         use self::PrimValKind::*;
         match self {
+            Bool => 1,
             I8 | U8 => 1,
             I16 | U16 => 2,
             I32 | U32 => 4,
