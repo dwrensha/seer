@@ -50,8 +50,8 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         let align = self.type_align(trait_ref.self_ty())?;
 
         let ptr_size = self.memory.pointer_size();
-        let methods = ::rustc::traits::get_vtable_methods(self.tcx, trait_ref);
-        let vtable = self.memory.allocate(ptr_size * (3 + methods.count() as u64), ptr_size)?;
+        let methods = self.tcx.vtable_methods(trait_ref);
+        let vtable = self.memory.allocate(ptr_size * (3 + methods.iter().count() as u64), ptr_size)?;
 
         let drop = ::eval_context::resolve_drop_in_place(self.tcx, ty);
         let drop = self.memory.create_fn_alloc(drop);
@@ -60,8 +60,8 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         self.memory.write_usize(vtable.offset(ptr_size, self.memory.layout)?, size)?;
         self.memory.write_usize(vtable.offset(ptr_size * 2, self.memory.layout)?, align)?;
 
-        for (i, method) in ::rustc::traits::get_vtable_methods(self.tcx, trait_ref).enumerate() {
-            if let Some((def_id, substs)) = method {
+        for (i, method) in self.tcx.vtable_methods(trait_ref).iter().enumerate() {
+            if let Some((def_id, substs)) = *method {
                 let instance = ::eval_context::resolve(self.tcx, def_id, substs);
                 let fn_ptr = self.memory.create_fn_alloc(instance);
                 self.memory.write_ptr(vtable.offset(ptr_size * (3 + i as u64), self.memory.layout)?, fn_ptr)?;
