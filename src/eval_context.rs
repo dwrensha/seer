@@ -1611,7 +1611,7 @@ pub fn monomorphize_field_ty<'a, 'tcx:'a >(tcx: TyCtxt<'a, 'tcx, 'tcx>, f: &ty::
 }
 
 pub fn is_inhabited<'a, 'tcx: 'a>(tcx: TyCtxt<'a, 'tcx, 'tcx>, ty: Ty<'tcx>) -> bool {
-    ty.uninhabited_from(&mut HashMap::default(), tcx).is_empty()
+    !tcx.is_ty_uninhabited_from_all_modules(ty)
 }
 
 pub trait IntoValTyPair<'tcx> {
