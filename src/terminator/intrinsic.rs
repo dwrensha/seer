@@ -572,7 +572,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         param_substs: &Substs<'tcx>,
         f: &ty::FieldDef,
     ) -> ty::Ty<'tcx> {
-        self.tcx.normalize_associated_type(&f.ty(self.tcx, param_substs))
+        self.tcx.fully_normalize_associated_types_in(&f.ty(self.tcx, param_substs))
     }
 }
 

@@ -265,7 +265,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         // let's simply get rid of them
         let without_lifetimes = self.tcx.erase_regions(&ty);
         let substituted = without_lifetimes.subst(self.tcx, substs);
-        self.tcx.normalize_associated_type(&substituted)
+        self.tcx.fully_normalize_associated_types_in(&substituted)
     }
 
     pub fn erase_lifetimes<T>(&self, value: &Binder<T>) -> T
@@ -1607,7 +1607,7 @@ impl IntegerExt for layout::Integer {
 
 pub fn monomorphize_field_ty<'a, 'tcx:'a >(tcx: TyCtxt<'a, 'tcx, 'tcx>, f: &ty::FieldDef, substs: &'tcx Substs<'tcx>) -> Ty<'tcx> {
     let substituted = f.ty(tcx, substs);
-    tcx.normalize_associated_type(&substituted)
+    tcx.fully_normalize_associated_types_in(&substituted)
 }
 
 pub fn is_inhabited<'a, 'tcx: 'a>(tcx: TyCtxt<'a, 'tcx, 'tcx>, ty: Ty<'tcx>) -> bool {
@@ -1896,7 +1896,7 @@ impl<'a, 'tcx> ::rustc::ty::fold::TypeFolder<'tcx, 'tcx> for AssociatedTypeNorma
         if !ty.has_projections() {
             ty
         } else {
-            self.tcx.normalize_associated_type(&ty)
+            self.tcx.fully_normalize_associated_types_in(&ty)
         }
     }
 }

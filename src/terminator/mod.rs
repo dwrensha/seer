@@ -119,7 +119,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                                 let sig = self.erase_lifetimes(&sig);
                                 let real_sig = instance_ty.fn_sig(self.tcx);
                                 let real_sig = self.erase_lifetimes(&real_sig);
-                                let real_sig = self.tcx.normalize_associated_type(&real_sig);
+                                let real_sig = self.tcx.fully_normalize_associated_types_in(&real_sig);
                                 if !self.check_sig_compat(sig, real_sig)? {
                                     return Err(EvalError::FunctionPointerTyMismatch(real_sig, sig));
                                 }
