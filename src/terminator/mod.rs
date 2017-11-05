@@ -232,6 +232,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             Unreachable => Err(EvalError::Unreachable),
             Yield { .. } => unimplemented!(),
             GeneratorDrop => unimplemented!(),
+            FalseEdges { .. } => unimplemented!(),
         }
     }
 
