@@ -93,7 +93,7 @@ impl <'a, 'tcx: 'a> Executor<'a, 'tcx> {
         let instance = ty::Instance::mono(tcx, def_id);
         let mir = ecx.load_mir(instance.def).expect("main function's MIR not found");
 
-        if !mir.return_ty.is_nil() || mir.arg_count > 0 {
+        if !mir.return_ty().is_nil() || mir.arg_count > 0 {
             let msg = "seer does not support main functions without `fn()` type signatures";
             tcx.sess.err(&EvalError::Unimplemented(String::from(msg)).to_string());
             unimplemented!()

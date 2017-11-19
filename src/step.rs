@@ -176,9 +176,9 @@ impl<'a, 'b, 'tcx> ConstantExtractor<'a, 'b, 'tcx> {
         }
         self.try(|this| {
             let mir = this.ecx.load_mir(instance.def)?;
-            this.ecx.globals.insert(cid, Global::uninitialized(mir.return_ty));
+            this.ecx.globals.insert(cid, Global::uninitialized(mir.return_ty()));
             let mutable = !shared ||
-                !mir.return_ty.is_freeze(
+                !mir.return_ty().is_freeze(
                     this.ecx.tcx,
                     ty::ParamEnv::empty(Reveal::All),
                     span);
@@ -226,7 +226,7 @@ impl<'a, 'b, 'tcx> Visitor<'tcx> for ConstantExtractor<'a, 'b, 'tcx> {
 
                 let mir = &self.mir.promoted[index];
                 self.try(|this| {
-                    let ty = this.ecx.monomorphize(mir.return_ty, this.instance.substs);
+                    let ty = this.ecx.monomorphize(mir.return_ty(), this.instance.substs);
                     this.ecx.globals.insert(cid, Global::uninitialized(ty));
                     trace!("pushing stack frame for {:?}", index);
                     this.ecx.push_stack_frame(this.instance,
