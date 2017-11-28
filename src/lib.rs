@@ -1,5 +1,6 @@
 #![feature(
     i128_type,
+    inclusive_range,
     rustc_private,
 )]
 

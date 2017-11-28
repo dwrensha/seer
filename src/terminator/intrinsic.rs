@@ -1,6 +1,6 @@
 use rustc::mir;
 use rustc::traits::Reveal;
-use rustc::ty::layout::{Layout, Size, Align};
+use rustc::ty::layout::{Size, Align};
 use rustc::ty::subst::Substs;
 use rustc::ty::{self, Ty};
 
@@ -17,7 +17,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         args: &[mir::Operand<'tcx>],
         dest: Lvalue<'tcx>,
         dest_ty: Ty<'tcx>,
-        dest_layout: &'tcx Layout,
+        dest_layout: ty::layout::TyLayout<'tcx>,
         target: mir::BasicBlock,
     ) -> EvalResult<'tcx> {
         let arg_vals: EvalResult<Vec<Value>> = args.iter()
@@ -179,7 +179,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             "discriminant_value" => {
                 let ty = instance.substs.type_at(0);
                 let adt_ptr = arg_vals[0].read_ptr(&self.memory)?.to_ptr()?;
-                let discr_val = self.read_discriminant_value(adt_ptr, ty)?;
+                let discr_val = self.read_discriminant_value(Lvalue::from_ptr(adt_ptr), ty)?;
                 self.write_primval(dest, PrimVal::Bytes(discr_val), dest_ty)?;
             }
 
@@ -290,7 +290,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             "pref_align_of" => {
                 let ty = instance.substs.type_at(0);
                 let layout = self.type_layout(ty)?;
-                let align = layout.align(&self.tcx.data_layout).pref();
+                let align = layout.align.pref();
                 let align_val = PrimVal::from_u128(align as u128);
                 self.write_primval(dest, align_val, dest_ty)?;
             }
@@ -404,14 +404,14 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             "size_of_val" => {
                 let ty = instance.substs.type_at(0);
                 let (size, _) = self.size_and_align_of_dst(ty, arg_vals[0])?;
-                self.write_primval(dest, PrimVal::from_u128(size as u128), dest_ty)?;
+                self.write_primval(dest, PrimVal::from_u128(size.bytes() as u128), dest_ty)?;
             }
 
             "min_align_of_val" |
             "align_of_val" => {
                 let ty = instance.substs.type_at(0);
                 let (_, align) = self.size_and_align_of_dst(ty, arg_vals[0])?;
-                self.write_primval(dest, PrimVal::from_u128(align as u128), dest_ty)?;
+                self.write_primval(dest, PrimVal::from_u128(align.abi() as u128), dest_ty)?;
             }
 
             "type_name" => {
@@ -436,7 +436,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             }
 
             "uninit" => {
-                let size = dest_layout.size(&self.tcx.data_layout).bytes();
+                let size = dest_layout.size.bytes();
                 let uninit = |this: &mut Self, val: Value| {
                     match val {
                         Value::ByRef(ptr) => {
@@ -481,41 +481,51 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         Ok(())
     }
 
+    /// Return the size and aligment of the value at the given type.
+    /// Note that the value does not matter if the type is sized. For unsized types,
+    /// the value has to be a fat pointer, and we only care about the "extra" data in it.
     pub fn size_and_align_of_dst(
-        &self,
+        &mut self,
         ty: ty::Ty<'tcx>,
         value: Value,
-    ) -> EvalResult<'tcx, (u64, u64)> {
-        if let Some(size) = self.type_size(ty)? {
-            Ok((size as u64, self.type_align(ty)? as u64))
+    ) -> EvalResult<'tcx, (Size, Align)> {
+        let layout = self.type_layout(ty)?;
+        if !layout.is_unsized() {
+            Ok(layout.size_and_align())
         } else {
             match ty.sty {
-                ty::TyAdt(def, substs) => {
+                ty::TyAdt(..) | ty::TyTuple(..) => {
                     // First get the size of all statically known fields.
                     // Don't use type_of::sizing_type_of because that expects t to be sized,
                     // and it also rounds up to alignment, which we want to avoid,
                     // as the unsized field's alignment could be smaller.
                     assert!(!ty.is_simd());
-                    let layout = self.type_layout(ty)?;
                     debug!("DST {} layout: {:?}", ty, layout);
 
-                    let (sized_size, sized_align) = match *layout {
-                        ty::layout::Layout::Univariant { ref variant, .. } => {
-                            (variant.offsets.last().map_or(0, |o| o.bytes()), variant.align)
-                        }
-                        _ => {
-                            bug!("size_and_align_of_dst: expcted Univariant for `{}`, found {:#?}",
-                                 ty, layout);
-                        }
-                    };
-                    debug!("DST {} statically sized prefix size: {} align: {:?}",
-                           ty, sized_size, sized_align);
+                    let sized_size = layout.fields.offset(layout.fields.count() - 1);
+                    let sized_align = layout.align;
+                    debug!(
+                        "DST {} statically sized prefix size: {:?} align: {:?}",
+                        ty,
+                        sized_size,
+                        sized_align
+                    );
 
                     // Recurse to get the size of the dynamically sized field (must be
                     // the last field).
-                    let last_field = def.struct_variant().fields.last().unwrap();
-                    let field_ty = self.field_ty(substs, last_field);
-                    let (unsized_size, unsized_align) = self.size_and_align_of_dst(field_ty, value)?;
+                    let (unsized_size, unsized_align) = match ty.sty {
+                        ty::TyAdt(def, substs) => {
+                            let last_field = def.struct_variant().fields.last().unwrap();
+                            let field_ty = self.field_ty(substs, last_field);
+                            self.size_and_align_of_dst(field_ty, value)?
+                        }
+                        ty::TyTuple(ref types, _) => {
+                            let field_ty = types.last().unwrap();
+                            let field_ty = self.tcx.fully_normalize_monormophic_ty(field_ty);
+                            self.size_and_align_of_dst(field_ty, value)?
+                        }
+                        _ => bug!("We already checked that we know this type"),
+                    };
 
                     // FIXME (#26403, #27023): We should be adding padding
                     // to `sized_size` (to accommodate the `unsized_align`
@@ -529,7 +539,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
 
                     // Choose max of two known alignments (combined value must
                     // be aligned according to more restrictive of the two).
-                    let align = sized_align.max(Align::from_bytes(unsized_align, unsized_align).unwrap());
+                    let align = sized_align.max(unsized_align);
 
                     // Issue #27023: must add any necessary padding to `size`
                     // (to make it a multiple of `align`) before returning it.
@@ -542,30 +552,25 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     //
                     //   `(size + (align-1)) & -align`
 
-                    let size = Size::from_bytes(size).abi_align(align).bytes();
-                    Ok((size, align.abi()))
+                    Ok((size.abi_align(align), align))
                 }
                 ty::TyDynamic(..) => {
-                    let (_, vtable) = value.expect_ptr_vtable_pair(&self.memory)?;
+                    let (_, vtable) = value.into_ptr_vtable_pair(&mut self.memory)?;
                     // the second entry in the vtable is the dynamic size of the object.
                     self.read_size_and_align_from_vtable(vtable)
                 }
 
                 ty::TySlice(_) | ty::TyStr => {
-                    let elem_ty = ty.sequence_element_type(self.tcx);
-                    let elem_size = self.type_size(elem_ty)?.expect("slice element must be sized") as u64;
-                    let (_, len) = value.expect_slice(&self.memory)?;
-                    let align = self.type_align(elem_ty)?;
-                    match len {
-                        PrimVal::Bytes(n) => Ok(((n as u64) * elem_size, align as u64)),
-                        _ => unimplemented!(),
-                    }
+                    let (elem_size, align) = layout.field(&self, 0)?.size_and_align();
+                    let (_, len) = value.into_slice(&mut self.memory)?;
+                    Ok((elem_size * len.to_u64()?, align))
                 }
 
                 _ => bug!("size_of_val::<{:?}>", ty),
             }
         }
     }
+
     /// Returns the normalized type of a struct field
     fn field_ty(
         &self,

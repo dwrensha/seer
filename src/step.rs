@@ -7,7 +7,6 @@ use rustc::hir;
 use rustc::mir::visit::{Visitor, LvalueContext};
 use rustc::mir;
 use rustc::traits::Reveal;
-use rustc::ty::layout::Layout;
 use rustc::ty::{subst, self};
 use rustc::middle::const_val::ConstVal;
 
@@ -15,7 +14,6 @@ use error::{EvalResult, EvalError};
 use eval_context::{EvalContext, StackPopCleanup};
 use executor::FinishStep;
 use lvalue::{Global, GlobalId, Lvalue};
-use value::{Value, PrimVal};
 use syntax::codemap::Span;
 
 impl<'a, 'tcx> EvalContext<'a, 'tcx> {
@@ -86,32 +84,13 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         match stmt.kind {
             Assign(ref lvalue, ref rvalue) => self.eval_rvalue_into_lvalue(rvalue, lvalue)?,
 
-            SetDiscriminant { ref lvalue, variant_index } => {
+            SetDiscriminant {
+                ref lvalue,
+                variant_index,
+            } => {
                 let dest = self.eval_lvalue(lvalue)?;
                 let dest_ty = self.lvalue_ty(lvalue);
-                let dest_layout = self.type_layout(dest_ty)?;
-
-                match *dest_layout {
-                    Layout::General { discr, .. } => {
-                        // FIXME: I (oli-obk) think we need to check the
-                        // `dest_ty` for the variant's discriminant and write
-                        // instead of the variant index
-                        // We don't have any tests actually going through these lines
-                        let discr_ty = discr.to_ty(&self.tcx, false);
-                        let discr_lval = self.lvalue_field(dest, 0, dest_ty, discr_ty)?;
-
-                        self.write_value(Value::ByVal(PrimVal::Bytes(variant_index as u128)), discr_lval, discr_ty)?;
-                    }
-
-                    Layout::RawNullablePointer { nndiscr, .. } => {
-                        use value::PrimVal;
-                        if variant_index as u64 != nndiscr {
-                            self.write_primval(dest, PrimVal::Bytes(0), dest_ty)?;
-                        }
-                    }
-
-                    _ => bug!("SetDiscriminant on {} represented as {:#?}", dest_ty, dest_layout),
-                }
+                self.write_discriminant_value(dest_ty, dest, variant_index)?;
             }
 
             // Miri can safely ignore these. Only translation needs it.

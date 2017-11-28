@@ -1,17 +1,17 @@
 use rustc::hir::def_id::DefId;
 use rustc::mir;
 use rustc::ty::{self, TypeVariants, Ty};
-use rustc::ty::layout::Layout;
+use rustc::ty::layout::HasDataLayout;
 use syntax::codemap::Span;
 use syntax::attr;
 use syntax::abi::Abi;
 
 use constraints::Constraint;
 use error::{EvalError, EvalResult};
-use eval_context::{EvalContext, IntegerExt, StackPopCleanup, is_inhabited};
+use eval_context::{EvalContext, StackPopCleanup, ValTy, is_inhabited};
 use executor::{FinishStep, FinishStepVariant};
 use lvalue::Lvalue;
-use memory::{Pointer, SByte};
+use memory::{SByte};
 use value::{PrimVal, PrimValKind};
 use value::Value;
 use rustc_data_structures::indexed_vec::Idx;
@@ -128,7 +128,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                         }
                         (instance, sig)
                     },
-                    ty::TyFnDef(def_id, substs) => (::eval_context::resolve(self.tcx, def_id, substs), func_ty.fn_sig(self.tcx)),
+                    ty::TyFnDef(def_id, substs) => (self.resolve(def_id, substs)?, func_ty.fn_sig(self.tcx)),
                     _ => {
                         let msg = format!("can't handle callee of type {:?}", func_ty);
                         return Err(EvalError::Unimplemented(msg));
@@ -279,9 +279,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 if check_ty_compat(sig.output(), real_sig.output()) && real_sig.inputs_and_output.len() == 3 => {
                 // First argument of real_sig must be a ZST
                 let fst_ty = real_sig.inputs_and_output[0];
-                let layout = self.type_layout(fst_ty)?;
-                let size = layout.size(&self.tcx.data_layout).bytes();
-                if size == 0 {
+                if self.type_layout(fst_ty)?.is_zst() {
                     // Second argument must be a tuple matching the argument list of sig
                     let snd_ty = real_sig.inputs_and_output[1];
                     match snd_ty.sty {
@@ -294,6 +292,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 }
             }
             _ => {}
+
         };
 
         // Nope, this doesn't work.
@@ -382,7 +381,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 for arg in arg_operands {
                     let arg_val = self.eval_operand(arg)?;
                     let arg_ty = self.operand_ty(arg);
-                    args.push((arg_val, arg_ty));
+                    args.push(ValTy { value: arg_val, ty: arg_ty });
                 }
 
                 if self.eval_fn_call_inner(
@@ -401,7 +400,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 trace!("arg_operands: {:?}", arg_operands);
                 match sig.abi {
                     Abi::Rust => {
-                        for (arg_local, (arg_val, arg_ty)) in arg_locals.zip(args) {
+                        for (arg_local, ValTy { value: arg_val, ty: arg_ty }) in arg_locals.zip(args) {
                             let dest = self.eval_lvalue(&mir::Lvalue::Local(arg_local))?;
                             self.write_value(arg_val, dest, arg_ty)?;
                         }
@@ -412,41 +411,54 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                         {   // write first argument
                             let first_local = arg_locals.next().unwrap();
                             let dest = self.eval_lvalue(&mir::Lvalue::Local(first_local))?;
-                            let (arg_val, arg_ty) = args.remove(0);
-                            self.write_value(arg_val, dest, arg_ty)?;
+                            self.write_value(args[0].value, dest, args[0].ty)?;
                         }
 
                         // unpack and write all other args
-                        let (arg_val, arg_ty) = args.remove(0);
-                        let layout = self.type_layout(arg_ty)?;
-                        if let (&ty::TyTuple(fields, _), &Layout::Univariant { ref variant, .. }) = (&arg_ty.sty, layout) {
-                            trace!("fields: {:?}", fields);
-                            if self.frame().mir.args_iter().count() == fields.len() + 1 {
-                                let offsets = variant.offsets.iter().map(|s| s.bytes());
-                                match arg_val {
+                        let layout = self.type_layout(args[1].ty)?;
+                        if let ty::TyTuple(..) = args[1].ty.sty {
+                            if self.frame().mir.args_iter().count() == layout.fields.count() + 1 {
+                                match args[1].value {
                                     Value::ByRef(ptr) => {
-                                        for ((offset, ty), arg_local) in offsets.zip(fields).zip(arg_locals) {
-                                            let arg = Value::ByRef(ptr.offset(offset, self.memory.layout)?);
-                                            let dest = self.eval_lvalue(&mir::Lvalue::Local(arg_local))?;
-                                            trace!("writing arg {:?} to {:?} (type: {})", arg, dest, ty);
-                                            self.write_value(arg, dest, ty)?;
+                                        for (i, arg_local) in arg_locals.enumerate() {
+                                            let field = layout.field(&self, i)?;
+                                            let offset = layout.fields.offset(i).bytes();
+                                            let arg = Value::ByRef(ptr.offset(offset, (&self).data_layout())?);
+                                            let dest =
+                                                self.eval_lvalue(&mir::Lvalue::Local(arg_local))?;
+                                            trace!(
+                                                "writing arg {:?} to {:?} (type: {})",
+                                                arg,
+                                                dest,
+                                                field.ty
+                                            );
+                                            self.write_value(arg, dest, field.ty)?;
                                         }
-                                    },
-                                    Value::ByVal(PrimVal::Undef) => {},
+                                    }
+                                    Value::ByVal(PrimVal::Undef) => {}
                                     other => {
-                                        assert_eq!(fields.len(), 1);
-                                        let dest = self.eval_lvalue(&mir::Lvalue::Local(arg_locals.next().unwrap()))?;
-                                        self.write_value(other, dest, fields[0])?;
+                                        assert_eq!(layout.fields.count(), 1);
+                                        let dest = self.eval_lvalue(&mir::Lvalue::Local(
+                                            arg_locals.next().unwrap(),
+                                        ))?;
+                                        let field_ty = layout.field(&self, 0)?.ty;
+                                        self.write_value(other, dest, field_ty)?;
                                     }
                                 }
                             } else {
                                 trace!("manual impl of rust-call ABI");
                                 // called a manual impl of a rust-call function
-                                let dest = self.eval_lvalue(&mir::Lvalue::Local(arg_locals.next().unwrap()))?;
-                                self.write_value(arg_val, dest, arg_ty)?;
+                                let dest = self.eval_lvalue(
+                                    &mir::Lvalue::Local(arg_locals.next().unwrap()),
+                                )?;
+                                self.write_value(args[1].value, dest, args[1].ty)?;
                             }
                         } else {
-                            bug!("rust-call ABI tuple argument was {:?}, {:?}", arg_ty, layout);
+                            bug!(
+                                "rust-call ABI tuple argument was {:#?}, {:#?}",
+                                args[1].ty,
+                                layout
+                            );
                         }
                     }
                     _ => unimplemented!(),
@@ -455,12 +467,12 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             },
             ty::InstanceDef::Virtual(_, idx) => {
                 let ptr_size = self.memory.pointer_size();
-                let (_, vtable) = self.eval_operand(&arg_operands[0])?.expect_ptr_vtable_pair(&self.memory)?;
+                let (_, vtable) = self.eval_operand(&arg_operands[0])?.into_ptr_vtable_pair(&self.memory)?;
                 let fn_ptr = self.memory.read_ptr(vtable.offset(ptr_size * (idx as u64 + 3), self.memory.layout)?)?;
                 let instance = self.memory.get_fn(fn_ptr.to_ptr()?)?;
                 let mut arg_operands = arg_operands.to_vec();
                 let ty = self.operand_ty(&arg_operands[0]);
-                let ty = self.get_field_ty(ty, 0)?;
+                let ty = self.get_field_ty(ty, 0)?.ty;
                 match arg_operands[0] {
                     mir::Operand::Consume(ref mut lval) => *lval = lval.clone().field(mir::Field::new(0), ty),
                     _ => bug!("virtual call first arg cannot be a constant"),
@@ -498,8 +510,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                         self.goto_block(block);
                         return Ok(true);
                     }
-                    "<std::io::Stdin as std::io::Read>::read" |
-                    "<std::io::Stdin as std::io::Read>::read_exact" => {
+                    "<std::io::Stdin as std::io::Read>::read" => {
                         let (lval, block) = destination.expect("Stdin::read() does not diverge");
                         let args_res: EvalResult<Vec<Value>> = arg_operands.iter()
                             .map(|arg| self.eval_operand(arg))
@@ -532,6 +543,34 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                         self.goto_block(block);
                         return Ok(true);
                     }
+                    "<std::io::Stdin as std::io::Read>::read_exact" => {
+                        let (lval, block) = destination.expect("Stdin::read() does not diverge");
+                        let args_res: EvalResult<Vec<Value>> = arg_operands.iter()
+                            .map(|arg| self.eval_operand(arg))
+                            .collect();
+                        let args = args_res?;
+
+                        match args[1] {
+                            Value::ByValPair(PrimVal::Ptr(ptr), PrimVal::Bytes(len)) => {
+                                self.memory.write_fresh_abstract_bytes(ptr, len as u64)?;
+                            }
+                            _ => {
+                                unimplemented!()
+                            }
+                        }
+
+                        let dest_ty = sig.output();
+
+                        // FIXME make this more robust
+                        self.write_discriminant_value(
+                            dest_ty,
+                            lval,
+                            0)?;
+
+                        self.goto_block(block);
+                        return Ok(true);
+                    }
+
                     "std::io::Stdin::lock" => {
                         return Err(
                             EvalError::Unimplemented(
@@ -568,56 +607,6 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         )?;
 
         Ok(false)
-    }
-
-    pub fn read_discriminant_value(&self, adt_ptr: Pointer, adt_ty: Ty<'tcx>) -> EvalResult<'tcx, u128> {
-        use rustc::ty::layout::Layout::*;
-        let adt_layout = self.type_layout(adt_ty)?;
-        trace!("read_discriminant_value {:#?}", adt_layout);
-
-        let discr_val = match *adt_layout {
-            General { discr, .. } | CEnum { discr, signed: false, .. } => {
-                let discr_size = discr.size().bytes();
-                self.memory.read_uint(adt_ptr, discr_size)?
-            }
-
-            CEnum { discr, signed: true, .. } => {
-                let discr_size = discr.size().bytes();
-                self.memory.read_int(adt_ptr, discr_size)? as u128
-            }
-
-            RawNullablePointer { nndiscr, value } => {
-                let discr_size = value.size(&self.tcx.data_layout).bytes();
-                trace!("rawnullablepointer with size {}", discr_size);
-                self.read_nonnull_discriminant_value(adt_ptr, nndiscr as u128, discr_size)?
-            }
-
-            StructWrappedNullablePointer { nndiscr, ref discrfield_source, .. } => {
-                let (offset, ty) = self.nonnull_offset_and_ty(adt_ty, nndiscr, discrfield_source)?;
-                let nonnull = adt_ptr.offset(offset.bytes(), self.memory.layout)?;
-                trace!("struct wrapped nullable pointer type: {}", ty);
-                // only the pointer part of a fat pointer is used for this space optimization
-                let discr_size = self.type_size(ty)?.expect("bad StructWrappedNullablePointer discrfield");
-                self.read_nonnull_discriminant_value(nonnull, nndiscr as u128, discr_size)?
-            }
-
-            // The discriminant_value intrinsic returns 0 for non-sum types.
-            Array { .. } | FatPointer { .. } | Scalar { .. } | Univariant { .. } |
-            Vector { .. } | UntaggedUnion { .. } => 0,
-        };
-
-        Ok(discr_val)
-    }
-
-    fn read_nonnull_discriminant_value(&self, ptr: Pointer, nndiscr: u128, discr_size: u64) -> EvalResult<'tcx, u128> {
-        trace!("read_nonnull_discriminant_value: {:?}, {}, {}", ptr, nndiscr, discr_size);
-        let not_null = match self.memory.read_uint(ptr, discr_size) {
-            Ok(0) => false,
-            Ok(_) | Err(EvalError::ReadPointerAsBytes) => true,
-            Err(e) => return Err(e),
-        };
-        assert!(nndiscr == 0 || nndiscr == 1);
-        Ok(if not_null { nndiscr } else { 1 - nndiscr })
     }
 
     /// Returns Ok() when the function was handled, fail otherwise

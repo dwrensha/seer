@@ -60,6 +60,7 @@ pub enum EvalError<'tcx> {
     Unreachable,
     Panic,
     ReadFromReturnPointer,
+    TypeckError,
 }
 
 pub type EvalResult<'tcx, T = ()> = Result<T, EvalError<'tcx>>;
@@ -148,6 +149,8 @@ impl<'tcx> Error for EvalError<'tcx> {
                 "the evaluated program panicked",
             EvalError::ReadFromReturnPointer =>
                 "tried to read from the return pointer",
+            EvalError::TypeckError =>
+                "encountered constants with type errors, stopping evaluation",
         }
     }
 
@@ -245,6 +248,7 @@ pub enum StaticEvalError {
     Unreachable,
     Panic,
     ReadFromReturnPointer,
+    TypeckError,
 }
 
 impl <'tcx> From<EvalError<'tcx>> for StaticEvalError {
@@ -332,6 +336,8 @@ impl <'tcx> From<EvalError<'tcx>> for StaticEvalError {
                 StaticEvalError::Panic,
             EvalError::ReadFromReturnPointer =>
                 StaticEvalError::ReadFromReturnPointer,
+            EvalError::TypeckError =>
+                StaticEvalError::TypeckError,
         }
     }
 }

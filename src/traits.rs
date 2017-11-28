@@ -7,6 +7,7 @@ use value::{Value, PrimVal};
 use rustc::hir::def_id::DefId;
 use rustc::ty::subst::Substs;
 use rustc::ty::{self, Ty};
+use rustc::ty::layout::{Size, Align, HasDataLayout};
 use syntax::codemap::DUMMY_SP;
 use syntax::ast;
 
@@ -62,7 +63,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
 
         for (i, method) in self.tcx.vtable_methods(trait_ref).iter().enumerate() {
             if let Some((def_id, substs)) = *method {
-                let instance = ::eval_context::resolve(self.tcx, def_id, substs);
+                let instance = self.resolve(def_id, substs)?;
                 let fn_ptr = self.memory.create_fn_alloc(instance);
                 self.memory.write_ptr(vtable.offset(ptr_size * (3 + i as u64), self.memory.layout)?, fn_ptr)?;
             }
@@ -86,11 +87,14 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         self.memory.get_fn(drop_fn).map(Some)
     }
 
-    pub fn read_size_and_align_from_vtable(&self, vtable: Pointer) -> EvalResult<'tcx, (u64, u64)> {
+    pub fn read_size_and_align_from_vtable(
+        &self,
+        vtable: Pointer,
+    ) -> EvalResult<'tcx, (Size, Align)> {
         let pointer_size = self.memory.pointer_size();
-        let size = self.memory.read_usize(vtable.offset(pointer_size, self.memory.layout)?)?;
-        let align = self.memory.read_usize(vtable.offset(pointer_size * 2, self.memory.layout)?)?;
-        Ok((size, align))
+        let size = self.memory.read_usize(vtable.offset(pointer_size, self.data_layout())?)?;
+        let align = self.memory.read_usize(vtable.offset(pointer_size * 2, self.data_layout())?)?;
+        Ok((Size::from_bytes(size), Align::from_bytes(align, align).unwrap()))
     }
 
     pub(crate) fn resolve_associated_const(

@@ -83,7 +83,7 @@ impl<'a, 'tcx: 'a> Value {
         }
     }
 
-    pub(super) fn expect_ptr_vtable_pair(
+    pub(super) fn into_ptr_vtable_pair(
         &self,
         mem: &Memory<'a, 'tcx>
     ) -> EvalResult<'tcx, (PrimVal, Pointer)> {
@@ -101,16 +101,16 @@ impl<'a, 'tcx: 'a> Value {
         }
     }
 
-    pub(super) fn expect_slice(&self, mem: &Memory<'a, 'tcx>) -> EvalResult<'tcx, (PrimVal, PrimVal)> {
+    pub(super) fn into_slice(&self, mem: &Memory<'a, 'tcx>) -> EvalResult<'tcx, (PrimVal, PrimVal)> {
         use self::Value::*;
         match *self {
             ByRef(ref_ptr) => {
                 let ptr = mem.read_ptr(ref_ptr)?;
                 let len = mem.read_usize(ref_ptr.offset(mem.pointer_size(), mem.layout)?)?;
-                Ok((ptr, PrimVal::from_u128(len as u128)))
+                Ok((ptr, PrimVal::Bytes(len as u128)))
             },
-            ByValPair(ptr, len) => {
-                Ok((ptr, len))
+            ByValPair(ptr, val) => {
+                Ok((ptr, val))
             },
             _ => unimplemented!(),
         }
@@ -153,7 +153,7 @@ impl<'tcx> PrimVal {
         match self {
             PrimVal::Bytes(b) => Ok(b),
             PrimVal::Abstract(_) => unimplemented!(),
-            PrimVal::Ptr(_) => Err(EvalError::ReadPointerAsBytes),
+            PrimVal::Ptr(_) => Err(EvalError::ReadBytesAsPointer),
             PrimVal::Undef => Err(EvalError::ReadUndefBytes),
         }
     }

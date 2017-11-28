@@ -3,6 +3,16 @@ extern crate compiletest_rs as compiletest;
 use std::path::{PathBuf, Path};
 use std::io::Write;
 
+fn dylib_env_var() -> &'static str {
+    if cfg!(windows) {
+        "PATH"
+    } else if cfg!(target_os = "macos") {
+        "DYLD_LIBRARY_PATH"
+    } else {
+        "LD_LIBRARY_PATH"
+    }
+}
+
 fn compile_fail(sysroot: &Path) {
     let flags = format!("--emit-error --sysroot {} -Dwarnings", sysroot.to_str().expect("non utf8 path"));
     for_all_targets(&sysroot, |target| {
@@ -106,7 +116,7 @@ fn compile_test() {
             let libs = Path::new(&sysroot).join("lib");
             let sysroot = libs.join("rustlib").join(&host).join("lib");
             let paths = std::env::join_paths(&[libs, sysroot]).unwrap();
-            cmd.env(compiletest::procsrv::dylib_env_var(), paths);
+            cmd.env(dylib_env_var(), paths);
 
             match cmd.output() {
                 Ok(ref output) if output.status.success() => {

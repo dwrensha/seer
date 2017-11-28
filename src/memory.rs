@@ -7,7 +7,7 @@ use rustc::ty::layout::{self, TargetDataLayout};
 
 use constraints::ConstraintContext;
 use error::{EvalError, EvalResult};
-use value::{self, PrimVal, PrimValKind};
+use value::{self, PrimVal, PrimValKind, Value};
 
 ////////////////////////////////////////////////////////////////////////////////
 // Allocations and pointers
@@ -140,6 +140,10 @@ impl Pointer {
             _ => unimplemented!(),
         }
     }
+
+    pub fn to_value_with_vtable(self, vtable: Pointer) -> Value {
+        Value::ByValPair(PrimVal::Ptr(self), PrimVal::Ptr(vtable))
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -211,6 +215,12 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
             literal_alloc_cache: HashMap::new(),
             constraints: ConstraintContext::new(),
         }
+    }
+
+    //// Trunace the given value to the pointer size; also return whether there was an overflow
+    pub fn truncate_to_ptr(&self, val: u128) -> (u64, bool) {
+        let max_ptr_plus_1 = 1u128 << self.layout.pointer_size.bits();
+        ((val % max_ptr_plus_1) as u64, val >= max_ptr_plus_1)
     }
 
     pub fn allocations(&self) -> ::std::collections::hash_map::Iter<AllocId, Allocation> {
@@ -856,6 +866,42 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
         let bytes = self.get_bytes_mut(ptr, count, 1)?;
         for b in bytes { *b = SByte::Concrete(val); }
         Ok(())
+    }
+
+    pub fn read_primval(&self, ptr: Pointer, size: u64, signed: bool) -> EvalResult<'tcx, PrimVal> {
+        self.check_relocation_edges(ptr, size)?; // Make sure we don't read part of a pointer as a pointer
+        let endianess = self.endianness();
+        let bytes = self.get_bytes_unchecked(ptr, size, self.int_align(size)?)?;
+        // Undef check happens *after* we established that the alignment is correct.
+        // We must not return Ok() for unaligned pointers!
+        if self.check_defined(ptr, size).is_err() {
+            return Ok(PrimVal::Undef.into());
+        }
+        // Now we do the actual reading
+        let bytes = if signed {
+            read_target_int(endianess, bytes).unwrap() as u128
+        } else {
+            read_target_uint(endianess, bytes).unwrap()
+        };
+        // See if we got a pointer
+        if size != self.pointer_size() {
+            if self.relocations(ptr, size)?.count() != 0 {
+                return Err(EvalError::ReadPointerAsBytes);
+            }
+        } else {
+            let alloc = self.get(ptr.alloc_id)?;
+            match ptr.offset {
+                PointerOffset::Concrete(off) => {
+                    match alloc.relocations.get(&off) {
+                        Some(&alloc_id) => return Ok(PrimVal::Ptr(Pointer::new(alloc_id, bytes as u64))),
+                        None => {},
+                    }
+                }
+                PointerOffset::Abstract(_) => unimplemented!(),
+            }
+        }
+        // We don't. Just return the bytes.
+        Ok(PrimVal::Bytes(bytes))
     }
 
     pub fn read_ptr(&self, ptr: Pointer) -> EvalResult<'tcx, PrimVal> {
