@@ -6,6 +6,8 @@ repository = "https://github.com/dwrensha/seer"
 name = "seer"
 version = "0.0.2"
 
+readme = "README.md"
+
 [[bin]]
 doc = false
 name = "seer"
