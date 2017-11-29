@@ -776,7 +776,8 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
     pub(super) fn eval_operand(&mut self, op: &mir::Operand<'tcx>) -> EvalResult<'tcx, Value> {
         use rustc::mir::Operand::*;
         match *op {
-            Consume(ref lvalue) => self.eval_and_read_lvalue(lvalue),
+            Copy(ref lvalue) => self.eval_and_read_lvalue(lvalue),
+            Move(ref lvalue) => self.eval_and_read_lvalue(lvalue),
 
             Constant(ref constant) => {
                 use rustc::mir::Literal;

@@ -474,7 +474,8 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 let ty = self.operand_ty(&arg_operands[0]);
                 let ty = self.get_field_ty(ty, 0)?.ty;
                 match arg_operands[0] {
-                    mir::Operand::Consume(ref mut lval) => *lval = lval.clone().field(mir::Field::new(0), ty),
+                    mir::Operand::Copy(ref mut lval) => *lval = lval.clone().field(mir::Field::new(0), ty),
+                    mir::Operand::Move(ref mut lval) => *lval = lval.clone().field(mir::Field::new(0), ty),
                     _ => bug!("virtual call first arg cannot be a constant"),
                 }
                 // recurse with concrete function
