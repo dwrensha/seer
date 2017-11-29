@@ -187,7 +187,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "seer"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "byteorder 1.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "cargo_metadata 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
