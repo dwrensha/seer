@@ -494,7 +494,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         match *rvalue {
             Use(ref operand) => {
                 let value = self.eval_operand(operand)?;
-                self.write_value(value, dest, dest_ty)?;
+                self.write_value(ValTy { value, ty: dest_ty }, dest)?;
             }
 
             BinaryOp(bin_op, ref left, ref right) => {
@@ -539,7 +539,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     if !self.type_layout(value_ty)?.is_zst() {
                         let field_index = active_field_index.unwrap_or(i);
                         let (field_dest, _) = self.lvalue_field(dest, mir::Field::new(field_index), layout)?;
-                        self.write_value(value, field_dest, value_ty)?;
+                        self.write_value(ValTy { value, ty: value_ty }, field_dest)?;
                     }
                 }
             }
@@ -582,7 +582,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                         bug!("attempted to take a reference to an enum downcast lvalue"),
                 };
 
-                self.write_value(val, dest, dest_ty)?;
+                self.write_value(ValTy { value: val, ty: dest_ty }, dest)?;
             }
 
             NullaryOp(mir::NullOp::Box, ty) => {
@@ -626,10 +626,10 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                             match (src, self.type_is_fat_ptr(dest_ty)) {
                                 (Value::ByRef(_), _) |
                                 (Value::ByValPair(..), true) => {
-                                    self.write_value(src, dest, dest_ty)?;
+                                    self.write_value(ValTy { value: src, ty: dest_ty }, dest)?;
                                 },
                                 (Value::ByValPair(data, _), false) => {
-                                    self.write_value(Value::ByVal(data), dest, dest_ty)?;
+                                    self.write_value(ValTy { value: Value::ByVal(data), ty: dest_ty }, dest)?;
                                 },
                                 (Value::ByVal(_), _) => bug!("expected fat ptr"),
                             }
@@ -646,7 +646,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                                         Err(err)
                                     }
                                 });
-                            self.write_value(Value::ByVal(dest_val?), dest, dest_ty)?;
+                            self.write_value(ValTy { value: Value::ByVal(dest_val?), ty: dest_ty}, dest)?;
                         }
                     }
 
@@ -654,7 +654,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                         ty::TyFnDef(def_id, substs) => {
                             let instance = self.resolve(def_id, substs)?;
                             let fn_ptr = self.memory.create_fn_alloc(instance);
-                            self.write_value(Value::ByVal(PrimVal::Ptr(fn_ptr)), dest, dest_ty)?;
+                            self.write_value(ValTy { value: Value::ByVal(PrimVal::Ptr(fn_ptr)), ty: dest_ty }, dest)?;
                         },
                         ref other => bug!("reify fn pointer on {:?}", other),
                     },
@@ -662,7 +662,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     UnsafeFnPointer => match dest_ty.sty {
                         ty::TyFnPtr(_) => {
                             let src = self.eval_operand(operand)?;
-                            self.write_value(src, dest, dest_ty)?;
+                            self.write_value(ValTy { value: src, ty: dest_ty }, dest)?;
                         },
                         ref other => bug!("fn to unsafe fn cast on {:?}", other),
                     },
@@ -671,7 +671,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                         ty::TyClosure(def_id, substs) => {
                             let instance = resolve_closure(self.tcx, def_id, substs, ty::ClosureKind::FnOnce);
                             let fn_ptr = self.memory.create_fn_alloc(instance);
-                            self.write_value(Value::ByVal(PrimVal::Ptr(fn_ptr)), dest, dest_ty)?;
+                            self.write_value(ValTy { value: Value::ByVal(PrimVal::Ptr(fn_ptr)), ty: dest_ty}, dest)?;
                         },
                         ref other => bug!("reify fn pointer on {:?}", other),
                     },
@@ -977,14 +977,13 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         val: PrimVal,
         dest_ty: Ty<'tcx>,
     ) -> EvalResult<'tcx> {
-        self.write_value(Value::ByVal(val), dest, dest_ty)
+        self.write_value(ValTy { value: Value::ByVal(val), ty: dest_ty }, dest)
     }
 
     pub(super) fn write_value(
         &mut self,
-        src_val: Value,
+        ValTy { value: src_val, ty: dest_ty } : ValTy<'tcx>,
         dest: Lvalue<'tcx>,
-        dest_ty: Ty<'tcx>,
     ) -> EvalResult<'tcx> {
         match dest {
             Lvalue::Global(cid) => {
@@ -1357,13 +1356,13 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             (&ty::TyArray(_, length), &ty::TySlice(_)) => {
                 let ptr = src.read_ptr(&self.memory)?;
                 let len = PrimVal::from_u128(length.val.to_const_int().unwrap().to_u64().unwrap() as u128);
-                self.write_value(Value::ByValPair(ptr, len), dest, dest_ty)
+                self.write_value(ValTy { value: Value::ByValPair(ptr, len), ty: dest_ty }, dest)
             }
             (&ty::TyDynamic(..), &ty::TyDynamic(..)) => {
                 // For now, upcasts are limited to changes in marker
                 // traits, and hence never actually require an actual
                 // change to the vtable.
-                self.write_value(src, dest, dest_ty)
+                self.write_value(ValTy { value: src, ty: dest_ty }, dest)
             },
             (_, &ty::TyDynamic(ref data, _)) => {
                 let trait_ref = data.principal().unwrap().with_self_ty(self.tcx, src_pointee_ty);
@@ -1371,7 +1370,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 let vtable = self.get_vtable(src_pointee_ty, trait_ref)?;
                 let ptr = src.read_ptr(&self.memory)?;
                 let extra = PrimVal::Ptr(vtable);
-                self.write_value(Value::ByValPair(ptr, extra), dest, dest_ty)
+                self.write_value(ValTy { value: Value::ByValPair(ptr, extra), ty: dest_ty}, dest)
             },
 
             _ => bug!("invalid unsizing {:?} -> {:?}", src_ty, dest_ty),

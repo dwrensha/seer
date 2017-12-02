@@ -5,7 +5,7 @@ use syntax::ast::FloatTy;
 use std::cmp::Ordering;
 
 use error::{EvalError, EvalResult};
-use eval_context::EvalContext;
+use eval_context::{EvalContext, ValTy};
 use lvalue::Lvalue;
 use memory::{Pointer, PointerOffset, SByte};
 use value::{
@@ -45,7 +45,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
     ) -> EvalResult<'tcx> {
         let (val, overflowed) = self.binop_with_overflow(op, left, right)?;
         let val = Value::ByValPair(val, PrimVal::from_bool(overflowed));
-        self.write_value(val, dest, dest_ty)
+        self.write_value(ValTy { value: val, ty: dest_ty}, dest)
     }
 
     /// Applies the binary operation `op` to the arguments and writes the result to the

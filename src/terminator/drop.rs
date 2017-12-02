@@ -3,7 +3,7 @@ use rustc::ty::{self, Ty};
 use syntax::codemap::Span;
 
 use error::EvalResult;
-use eval_context::{EvalContext, StackPopCleanup};
+use eval_context::{EvalContext, StackPopCleanup, ValTy};
 use lvalue::{Lvalue, LvalueExtra};
 use value::PrimVal;
 use value::Value;
@@ -64,6 +64,6 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         let arg_local = arg_locals.next().unwrap();
         let dest = self.eval_lvalue(&mir::Place::Local(arg_local))?;
         let arg_ty = self.tcx.mk_mut_ptr(ty);
-        self.write_value(arg, dest, arg_ty)
+        self.write_value(ValTy { value: arg, ty: arg_ty }, dest)
     }
 }

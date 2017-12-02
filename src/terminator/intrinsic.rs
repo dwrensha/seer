@@ -5,7 +5,7 @@ use rustc::ty::subst::Substs;
 use rustc::ty::{self, Ty};
 
 use error::{EvalError, EvalResult};
-use eval_context::EvalContext;
+use eval_context::{EvalContext, ValTy};
 use lvalue::{Lvalue, LvalueExtra};
 use memory::{Pointer, PointerOffset};
 use value::{PrimVal, PrimValKind, Value};
@@ -67,7 +67,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             "volatile_load" => {
                 let ty = instance.substs.type_at(0);
                 let ptr = arg_vals[0].read_ptr(&self.memory)?.to_ptr()?;
-                self.write_value(Value::ByRef(ptr), dest, ty)?;
+                self.write_value(ValTy { value: Value::ByRef(ptr), ty }, dest)?;
             }
 
             "atomic_store" |
@@ -418,7 +418,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 let ty = instance.substs.type_at(0);
                 let ty_name = ty.to_string();
                 let s = self.str_to_value(&ty_name)?;
-                self.write_value(s, dest, dest_ty)?;
+                self.write_value(ValTy { value: s, ty: dest_ty }, dest)?;
             }
             "type_id" => {
                 let ty = instance.substs.type_at(0);

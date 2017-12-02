@@ -328,7 +328,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 for arg in arg_operands {
                     let arg_val = self.eval_operand(arg)?;
                     let arg_ty = self.operand_ty(arg);
-                    args.push((arg_val, arg_ty));
+                    args.push(ValTy { value: arg_val, ty: arg_ty});
                 }
                 if self.eval_fn_call_inner(
                     instance,
@@ -343,9 +343,9 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 match sig.abi {
                     // closure as closure once
                     Abi::RustCall => {
-                        for (arg_local, (arg_val, arg_ty)) in arg_locals.zip(args) {
+                        for (arg_local, arg_valty) in arg_locals.zip(args) {
                             let dest = self.eval_lvalue(&mir::Place::Local(arg_local))?;
-                            self.write_value(arg_val, dest, arg_ty)?;
+                            self.write_value(arg_valty, dest)?;
                         }
                     },
                     // non capture closure as fn ptr
@@ -355,9 +355,10 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                         trace!("arg_locals: {:?}", self.frame().mir.args_iter().collect::<Vec<_>>());
                         trace!("arg_operands: {:?}", arg_operands);
                         let local = arg_locals.nth(1).unwrap();
-                        for (i, (arg_val, arg_ty)) in args.into_iter().enumerate() {
-                            let dest = self.eval_lvalue(&mir::Place::Local(local).field(mir::Field::new(i), arg_ty))?;
-                            self.write_value(arg_val, dest, arg_ty)?;
+                        for (i, arg_valty) in args.into_iter().enumerate() {
+                            let dest = self.eval_lvalue(&mir::Place::Local(local).field(mir::Field::new(i),
+                                                                                        arg_valty.ty))?;
+                            self.write_value(arg_valty, dest)?;
                         }
                     },
                     _ => bug!("bad ABI for ClosureOnceShim: {:?}", sig.abi),
@@ -400,9 +401,9 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 trace!("arg_operands: {:?}", arg_operands);
                 match sig.abi {
                     Abi::Rust => {
-                        for (arg_local, ValTy { value: arg_val, ty: arg_ty }) in arg_locals.zip(args) {
+                        for (arg_local, valty) in arg_locals.zip(args) {
                             let dest = self.eval_lvalue(&mir::Place::Local(arg_local))?;
-                            self.write_value(arg_val, dest, arg_ty)?;
+                            self.write_value(valty, dest)?;
                         }
                     }
                     Abi::RustCall => {
@@ -411,7 +412,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                         {   // write first argument
                             let first_local = arg_locals.next().unwrap();
                             let dest = self.eval_lvalue(&mir::Place::Local(first_local))?;
-                            self.write_value(args[0].value, dest, args[0].ty)?;
+                            self.write_value(ValTy { value: args[0].value, ty: args[0].ty }, dest)?;
                         }
 
                         // unpack and write all other args
@@ -432,7 +433,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                                                 dest,
                                                 field.ty
                                             );
-                                            self.write_value(arg, dest, field.ty)?;
+                                            self.write_value(ValTy { value: arg, ty: field.ty }, dest)?;
                                         }
                                     }
                                     Value::ByVal(PrimVal::Undef) => {}
@@ -442,7 +443,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                                             arg_locals.next().unwrap(),
                                         ))?;
                                         let field_ty = layout.field(&self, 0)?.ty;
-                                        self.write_value(other, dest, field_ty)?;
+                                        self.write_value(ValTy { value: other, ty: field_ty }, dest)?;
                                     }
                                 }
                             } else {
@@ -451,7 +452,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                                 let dest = self.eval_lvalue(
                                     &mir::Place::Local(arg_locals.next().unwrap()),
                                 )?;
-                                self.write_value(args[1].value, dest, args[1].ty)?;
+                                self.write_value(ValTy {value: args[1].value, ty: args[1].ty }, dest)?;
                             }
                         } else {
                             bug!(
