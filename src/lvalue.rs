@@ -121,11 +121,11 @@ impl<'tcx> Global<'tcx> {
 impl<'a, 'tcx> EvalContext<'a, 'tcx> {
     /// Reads a value from the lvalue without going through the intermediate step of obtaining
     /// a `miri::Lvalue`
-    pub fn try_read_lvalue(&mut self, lvalue: &mir::Lvalue<'tcx>) -> EvalResult<'tcx, Option<Value>> {
-        use rustc::mir::Lvalue::*;
+    pub fn try_read_lvalue(&mut self, lvalue: &mir::Place<'tcx>) -> EvalResult<'tcx, Option<Value>> {
+        use rustc::mir::Place::*;
         match *lvalue {
             // Might allow this in the future, right now there's no way to do this from Rust code anyway
-            Local(mir::RETURN_POINTER) => Err(EvalError::ReadFromReturnPointer),
+            Local(mir::RETURN_PLACE) => Err(EvalError::ReadFromReturnPointer),
             // Directly reading a local will always succeed
             Local(local) => self.frame().get_local(local).map(Some),
             // Directly reading a static will always succeed
@@ -138,7 +138,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         }
     }
 
-    fn try_read_lvalue_projection(&mut self, proj: &mir::LvalueProjection<'tcx>) -> EvalResult<'tcx, Option<Value>> {
+    fn try_read_lvalue_projection(&mut self, proj: &mir::PlaceProjection<'tcx>) -> EvalResult<'tcx, Option<Value>> {
         use rustc::mir::ProjectionElem::*;
         let base = match self.try_read_lvalue(&proj.base)? {
             Some(base) => base,
@@ -168,7 +168,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         }
     }
 
-    pub(super) fn eval_and_read_lvalue(&mut self, lvalue: &mir::Lvalue<'tcx>) -> EvalResult<'tcx, Value> {
+    pub(super) fn eval_and_read_lvalue(&mut self, lvalue: &mir::Place<'tcx>) -> EvalResult<'tcx, Value> {
         let ty = self.lvalue_ty(lvalue);
         // Shortcut for things like accessing a fat pointer's field,
         // which would otherwise (in the `eval_lvalue` path) require moving a `ByValPair` to memory
@@ -209,10 +209,10 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         }
     }
 
-    pub(super) fn eval_lvalue(&mut self, mir_lvalue: &mir::Lvalue<'tcx>) -> EvalResult<'tcx, Lvalue<'tcx>> {
-        use rustc::mir::Lvalue::*;
+    pub(super) fn eval_lvalue(&mut self, mir_lvalue: &mir::Place<'tcx>) -> EvalResult<'tcx, Lvalue<'tcx>> {
+        use rustc::mir::Place::*;
         let lvalue = match *mir_lvalue {
-            Local(mir::RETURN_POINTER) => self.frame().return_lvalue,
+            Local(mir::RETURN_PLACE) => self.frame().return_lvalue,
             Local(local) => Lvalue::Local { frame: self.stack.len() - 1, local },
 
             Static(ref static_) => {
@@ -491,7 +491,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         Ok(Lvalue::Ptr { ptr: PrimVal::Ptr(ptr), extra })
     }
 
-    pub(super) fn lvalue_ty(&self, lvalue: &mir::Lvalue<'tcx>) -> Ty<'tcx> {
+    pub(super) fn lvalue_ty(&self, lvalue: &mir::Place<'tcx>) -> Ty<'tcx> {
         self.monomorphize(lvalue.ty(self.mir(), self.tcx).to_ty(self.tcx), self.substs())
     }
 }

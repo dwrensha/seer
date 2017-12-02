@@ -485,7 +485,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
     pub(super) fn eval_rvalue_into_lvalue(
         &mut self,
         rvalue: &mir::Rvalue<'tcx>,
-        lvalue: &mir::Lvalue<'tcx>,
+        lvalue: &mir::Place<'tcx>,
     ) -> EvalResult<'tcx> {
         let dest = self.eval_lvalue(lvalue)?;
         let dest_ty = self.lvalue_ty(lvalue);

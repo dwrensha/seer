@@ -4,7 +4,7 @@
 
 use rustc::hir::def_id::DefId;
 use rustc::hir;
-use rustc::mir::visit::{Visitor, LvalueContext};
+use rustc::mir::visit::{Visitor, PlaceContext};
 use rustc::mir;
 use rustc::traits::Reveal;
 use rustc::ty::{subst, self};
@@ -82,14 +82,14 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
 
         use rustc::mir::StatementKind::*;
         match stmt.kind {
-            Assign(ref lvalue, ref rvalue) => self.eval_rvalue_into_lvalue(rvalue, lvalue)?,
+            Assign(ref place, ref rvalue) => self.eval_rvalue_into_lvalue(rvalue, place)?,
 
             SetDiscriminant {
-                ref lvalue,
+                ref place,
                 variant_index,
             } => {
-                let dest = self.eval_lvalue(lvalue)?;
-                let dest_ty = self.lvalue_ty(lvalue);
+                let dest = self.eval_lvalue(place)?;
+                let dest_ty = self.lvalue_ty(place);
                 self.write_discriminant_value(dest_ty, dest, variant_index)?;
             }
 
@@ -218,14 +218,14 @@ impl<'a, 'b, 'tcx> Visitor<'tcx> for ConstantExtractor<'a, 'b, 'tcx> {
         }
     }
 
-    fn visit_lvalue(
+    fn visit_place(
         &mut self,
-        lvalue: &mir::Lvalue<'tcx>,
-        context: LvalueContext<'tcx>,
+        lvalue: &mir::Place<'tcx>,
+        context: PlaceContext<'tcx>,
         location: mir::Location
     ) {
-        self.super_lvalue(lvalue, context, location);
-        if let mir::Lvalue::Static(ref static_) = *lvalue {
+        self.super_place(lvalue, context, location);
+        if let mir::Place::Static(ref static_) = *lvalue {
             let def_id = static_.def_id;
             let substs = self.ecx.tcx.intern_substs(&[]);
             let span = self.span;

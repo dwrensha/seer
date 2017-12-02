@@ -344,7 +344,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     // closure as closure once
                     Abi::RustCall => {
                         for (arg_local, (arg_val, arg_ty)) in arg_locals.zip(args) {
-                            let dest = self.eval_lvalue(&mir::Lvalue::Local(arg_local))?;
+                            let dest = self.eval_lvalue(&mir::Place::Local(arg_local))?;
                             self.write_value(arg_val, dest, arg_ty)?;
                         }
                     },
@@ -356,7 +356,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                         trace!("arg_operands: {:?}", arg_operands);
                         let local = arg_locals.nth(1).unwrap();
                         for (i, (arg_val, arg_ty)) in args.into_iter().enumerate() {
-                            let dest = self.eval_lvalue(&mir::Lvalue::Local(local).field(mir::Field::new(i), arg_ty))?;
+                            let dest = self.eval_lvalue(&mir::Place::Local(local).field(mir::Field::new(i), arg_ty))?;
                             self.write_value(arg_val, dest, arg_ty)?;
                         }
                     },
@@ -401,7 +401,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 match sig.abi {
                     Abi::Rust => {
                         for (arg_local, ValTy { value: arg_val, ty: arg_ty }) in arg_locals.zip(args) {
-                            let dest = self.eval_lvalue(&mir::Lvalue::Local(arg_local))?;
+                            let dest = self.eval_lvalue(&mir::Place::Local(arg_local))?;
                             self.write_value(arg_val, dest, arg_ty)?;
                         }
                     }
@@ -410,7 +410,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
 
                         {   // write first argument
                             let first_local = arg_locals.next().unwrap();
-                            let dest = self.eval_lvalue(&mir::Lvalue::Local(first_local))?;
+                            let dest = self.eval_lvalue(&mir::Place::Local(first_local))?;
                             self.write_value(args[0].value, dest, args[0].ty)?;
                         }
 
@@ -425,7 +425,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                                             let offset = layout.fields.offset(i).bytes();
                                             let arg = Value::ByRef(ptr.offset(offset, (&self).data_layout())?);
                                             let dest =
-                                                self.eval_lvalue(&mir::Lvalue::Local(arg_local))?;
+                                                self.eval_lvalue(&mir::Place::Local(arg_local))?;
                                             trace!(
                                                 "writing arg {:?} to {:?} (type: {})",
                                                 arg,
@@ -438,7 +438,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                                     Value::ByVal(PrimVal::Undef) => {}
                                     other => {
                                         assert_eq!(layout.fields.count(), 1);
-                                        let dest = self.eval_lvalue(&mir::Lvalue::Local(
+                                        let dest = self.eval_lvalue(&mir::Place::Local(
                                             arg_locals.next().unwrap(),
                                         ))?;
                                         let field_ty = layout.field(&self, 0)?.ty;
@@ -449,7 +449,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                                 trace!("manual impl of rust-call ABI");
                                 // called a manual impl of a rust-call function
                                 let dest = self.eval_lvalue(
-                                    &mir::Lvalue::Local(arg_locals.next().unwrap()),
+                                    &mir::Place::Local(arg_locals.next().unwrap()),
                                 )?;
                                 self.write_value(args[1].value, dest, args[1].ty)?;
                             }

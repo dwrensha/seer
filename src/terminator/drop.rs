@@ -62,7 +62,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         let mut arg_locals = self.frame().mir.args_iter();
         assert_eq!(self.frame().mir.arg_count, 1);
         let arg_local = arg_locals.next().unwrap();
-        let dest = self.eval_lvalue(&mir::Lvalue::Local(arg_local))?;
+        let dest = self.eval_lvalue(&mir::Place::Local(arg_local))?;
         let arg_ty = self.tcx.mk_mut_ptr(ty);
         self.write_value(arg, dest, arg_ty)
     }
