@@ -37,16 +37,16 @@ fn run_pass() {
     compiletest::run_tests(&config);
 }
 
-fn miri_pass(path: &str, target: &str, host: &str) {
+fn seer_pass(path: &str, target: &str, host: &str) {
     let mut config = compiletest::Config::default();
-    config.mode = "mir-opt".parse().expect("Invalid mode");
+    config.mode = "run-pass".parse().expect("Invalid mode");
     config.src_base = PathBuf::from(path);
     config.target = target.to_owned();
     config.host = host.to_owned();
     config.rustc_path = PathBuf::from("target/debug/seer");
     config.target_rustcflags = Some("--emit-error".into());
     // don't actually execute the final binary, it might be for other targets and we only care
-    // about running miri, not the binary.
+    // about running seer, not the binary.
     config.runtool = Some("echo \"\" || ".to_owned());
     if target == host {
         std::env::set_var("MIRI_HOST_TARGET", "yes");
@@ -200,7 +200,7 @@ fn compile_test() {
     } else {
         run_pass();
         for_all_targets(&sysroot, |target| {
-            miri_pass("tests/run-pass", &target, host);
+            seer_pass("tests/run-pass", &target, host);
         });
         compile_fail(&sysroot);
     }
