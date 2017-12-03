@@ -96,6 +96,15 @@ impl Pointer {
         Pointer { alloc_id, offset: PointerOffset::Abstract(offset), }
     }
 
+    pub fn with_primval_offset(alloc_id: AllocId, offset: PrimVal) -> Self {
+        match offset {
+            PrimVal::Abstract(sbytes) => Pointer::new_abstract(alloc_id, sbytes),
+            PrimVal::Bytes(b) => Pointer::new(alloc_id, b as u64),
+            PrimVal::Undef => panic!("tried to construct pointer with undefined offset"),
+            PrimVal::Ptr(_) => panic!("tried to construct point with pointer offset"),
+        }
+    }
+
     pub fn has_concrete_offset(self) -> bool {
         match self.offset {
             PointerOffset::Concrete(_) => true,

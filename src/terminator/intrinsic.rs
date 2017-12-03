@@ -331,12 +331,8 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                         ptr.to_ptr()?.offset.as_primval(),
                         byte_offset,
                         PrimValKind::U64);
-                    if let PrimVal::Abstract(sbytes) = new_offset {
-                        let new_ptr = Pointer::new_abstract(ptr.to_ptr()?.alloc_id, sbytes);
-                        self.write_primval(dest, PrimVal::Ptr(new_ptr), dest_ty)?;
-                    } else {
-                        unreachable!()
-                    }
+                    let new_ptr = Pointer::with_primval_offset(ptr.to_ptr()?.alloc_id, new_offset);
+                    self.write_primval(dest, PrimVal::Ptr(new_ptr), dest_ty)?;
                 }
             }
 

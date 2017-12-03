@@ -363,17 +363,12 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                         PrimVal::Bytes(elem_size as u128),
                         PrimValKind::U64);
 
-                    match self.memory.constraints.add_binop_constraint(
+                    let offset = self.memory.constraints.add_binop_constraint(
                         mir::BinOp::Add,
                         p.offset.as_primval(),
                         byte_index,
-                        PrimValKind::U64) {
-                        PrimVal::Abstract(sbytes) => {
-                            PrimVal::Ptr(Pointer::new_abstract(p.alloc_id, sbytes))
-                        }
-                        _ => unreachable!(),
-                    }
-
+                        PrimValKind::U64);
+                    PrimVal::Ptr(Pointer::with_primval_offset(p.alloc_id, offset))
                 }
                 (Err(_), 0) => base_ptr,
                 (Err(e), _) => return Err(e),
