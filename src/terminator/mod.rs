@@ -438,12 +438,25 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                                     }
                                     Value::ByVal(PrimVal::Undef) => {}
                                     other => {
-                                        assert_eq!(layout.fields.count(), 1);
+                                        let mut layout = layout;
+                                        'outer: loop {
+                                            for i in 0..layout.fields.count() {
+                                                let field = layout.field(&self, i)?;
+                                                if layout.fields.offset(i).bytes() == 0 && layout.size == field.size {
+                                                    layout = field;
+                                                    continue 'outer;
+                                                }
+                                            }
+                                            break;
+                                        }
                                         let dest = self.eval_lvalue(&mir::Place::Local(
                                             arg_locals.next().unwrap(),
                                         ))?;
-                                        let field_ty = layout.field(&self, 0)?.ty;
-                                        self.write_value(ValTy { value: other, ty: field_ty }, dest)?;
+                                        let valty = ValTy {
+                                            value: other,
+                                            ty: layout.ty,
+                                        };
+                                        self.write_value(valty, dest)?;
                                     }
                                 }
                             } else {
