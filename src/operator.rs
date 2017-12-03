@@ -420,17 +420,6 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
     ) -> EvalResult<'tcx, (PrimVal, bool)> {
         use rustc::mir::BinOp::*;
         use value::PrimValKind::*;
-
-        let left_offset_primval = match left.offset {
-            PointerOffset::Concrete(n) => PrimVal::Bytes(n as u128),
-            PointerOffset::Abstract(sbytes) => PrimVal::Abstract(sbytes),
-        };
-
-        let right_offset_primval = match right.offset {
-            PointerOffset::Concrete(n) => PrimVal::Bytes(n as u128),
-            PointerOffset::Abstract(sbytes) => PrimVal::Abstract(sbytes),
-        };
-
         if left.alloc_id != right.alloc_id {
             if let Eq = bin_op {
                 unimplemented!()
@@ -439,7 +428,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             }
         } else {
             let result = self.memory.constraints.add_binop_constraint(
-                bin_op, left_offset_primval, right_offset_primval, U64);
+                bin_op, left.offset.as_primval(), right.offset.as_primval(), U64);
             Ok((result, false))
         }
     }

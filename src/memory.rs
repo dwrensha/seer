@@ -78,6 +78,15 @@ pub enum PointerOffset {
     Abstract([SByte; 8]),
 }
 
+impl PointerOffset {
+    pub fn as_primval(&self) -> PrimVal {
+        match *self {
+            PointerOffset::Concrete(n) => PrimVal::Bytes(n as u128),
+            PointerOffset::Abstract(sbytes) => PrimVal::Abstract(sbytes),
+        }
+    }
+}
+
 impl Pointer {
     pub fn new(alloc_id: AllocId, offset: u64) -> Self {
         Pointer { alloc_id, offset: PointerOffset::Concrete(offset), }

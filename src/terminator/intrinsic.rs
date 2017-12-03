@@ -7,7 +7,7 @@ use rustc::ty::{self, Ty};
 use error::{EvalError, EvalResult};
 use eval_context::{EvalContext, ValTy};
 use lvalue::{Lvalue, LvalueExtra};
-use memory::{Pointer, PointerOffset};
+use memory::{Pointer};
 use value::{PrimVal, PrimValKind, Value};
 
 impl<'a, 'tcx> EvalContext<'a, 'tcx> {
@@ -316,10 +316,6 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     let result_ptr = self.pointer_offset(ptr, substs.type_at(0), offset)?;
                     self.write_primval(dest, result_ptr, dest_ty)?;
                 } else {
-                    let ptr_offset_primval = match ptr.to_ptr()?.offset {
-                        PointerOffset::Concrete(n) => PrimVal::Bytes(n as u128),
-                        PointerOffset::Abstract(sbytes) => PrimVal::Abstract(sbytes),
-                    };
                     // need to account for the size of the type.
                     let size =
                         self.type_size(substs.type_at(0))?.expect(
@@ -332,7 +328,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                         PrimValKind::U64);
                     let new_offset = self.memory.constraints.add_binop_constraint(
                         mir::BinOp::Add,
-                        ptr_offset_primval,
+                        ptr.to_ptr()?.offset.as_primval(),
                         byte_offset,
                         PrimValKind::U64);
                     if let PrimVal::Abstract(sbytes) = new_offset {

@@ -5,7 +5,7 @@ use rustc_data_structures::indexed_vec::Idx;
 
 use error::{EvalError, EvalResult};
 use eval_context::{EvalContext};
-use memory::{Pointer, PointerOffset};
+use memory::{Pointer};
 use value::{PrimVal, PrimValKind, Value};
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -363,14 +363,9 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                         PrimVal::Bytes(elem_size as u128),
                         PrimValKind::U64);
 
-                    let base_offset_primval = match p.offset {
-                        PointerOffset::Concrete(n) => PrimVal::Bytes(n as u128),
-                        PointerOffset::Abstract(sbytes) => PrimVal::Abstract(sbytes),
-                    };
-
                     match self.memory.constraints.add_binop_constraint(
                         mir::BinOp::Add,
-                        base_offset_primval,
+                        p.offset.as_primval(),
                         byte_index,
                         PrimValKind::U64) {
                         PrimVal::Abstract(sbytes) => {
