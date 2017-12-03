@@ -355,23 +355,22 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 extra: LvalueExtra::None,
             })
         } else {
-            let ptr_primval = match (base_ptr.to_ptr(), elem_size) {
-                (Ok(p), _) => {
-                    let byte_index = self.memory.constraints.add_binop_constraint(
-                        mir::BinOp::Mul,
-                        idx,
-                        PrimVal::Bytes(elem_size as u128),
-                        PrimValKind::U64);
+            let ptr_primval = if elem_size == 0 {
+                base_ptr
+            } else {
+                let p = base_ptr.to_ptr()?;
+                let byte_index = self.memory.constraints.add_binop_constraint(
+                    mir::BinOp::Mul,
+                    idx,
+                    PrimVal::Bytes(elem_size as u128),
+                    PrimValKind::U64);
 
-                    let offset = self.memory.constraints.add_binop_constraint(
-                        mir::BinOp::Add,
-                        p.offset.as_primval(),
-                        byte_index,
-                        PrimValKind::U64);
-                    PrimVal::Ptr(Pointer::with_primval_offset(p.alloc_id, offset))
-                }
-                (Err(_), 0) => base_ptr,
-                (Err(e), _) => return Err(e),
+                let offset = self.memory.constraints.add_binop_constraint(
+                    mir::BinOp::Add,
+                    p.offset.as_primval(),
+                    byte_index,
+                    PrimValKind::U64);
+                PrimVal::Ptr(Pointer::with_primval_offset(p.alloc_id, offset))
             };
 
             Ok(Lvalue::Ptr {
