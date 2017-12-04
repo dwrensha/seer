@@ -7,15 +7,15 @@ Seer is a fork of [miri](https://github.com/solson/miri)
 that adds support for symbolic execution, using
 [z3](https://github.com/Z3Prover/z3) as a solver backend.
 
-Given a program, Seer attempts to exhaustively
-enumerate the possible execution paths through that program.
-Seer represents program input in a _symbolic_ form
-and maintains a set of constraints on it.
-When Seer reaches a branching point in the program, it
-invokes its solver backend to compute which branches
-are feasible given the current constraints. The feasible
-branches are then enqueued for exploration, augmented with the
-new constraints learned from the branching condition.
+Given a program written in Rust, Seer attempts to exhaustively
+enumerate the possible execution paths through it.
+To achieve this, Seer represents the program's input in a _symbolic_ form,
+maintaining a set of constraints on it.
+When Seer reaches a branch point in the program, it
+invokes its solver backend to compute which continuations
+are possible given the current constraints. The possible
+continuations are then enqueued for exploration, augmented with the
+respective new constraints learned from the branch condition.
 
 Seer considers any bytes read in through `::std::io::stdin()`
 as symbolic input. This means that once
