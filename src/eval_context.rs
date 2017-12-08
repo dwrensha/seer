@@ -1599,7 +1599,7 @@ fn fn_once_adapter_instance<'a, 'tcx>(
     let self_ty = tcx.mk_closure_from_closure_substs(
         closure_did, substs);
 
-    let sig = tcx.fn_sig(closure_did).subst(tcx, substs.substs);
+    let sig = substs.closure_sig(closure_did, tcx);
     let sig = tcx.erase_late_bound_regions_and_normalize(&sig);
     assert_eq!(sig.inputs().len(), 1);
     let substs = tcx.mk_substs([
