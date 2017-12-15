@@ -669,7 +669,8 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
 
                     ClosureFnPointer => match self.operand_ty(operand).sty {
                         ty::TyClosure(def_id, substs) => {
-                            let instance = resolve_closure(self.tcx, def_id, substs, ty::ClosureKind::FnOnce);
+                            let instance = ::rustc::ty::Instance::resolve_closure(
+                                self.tcx, def_id, substs, ty::ClosureKind::FnOnce);
                             let fn_ptr = self.memory.create_fn_alloc(instance);
                             self.write_value(ValTy { value: Value::ByVal(PrimVal::Ptr(fn_ptr)), ty: dest_ty}, dest)?;
                         },
@@ -1564,83 +1565,6 @@ impl<'b, 'tcx: 'b> IntoValTyPair<'tcx> for &'b mir::Operand<'tcx> {
         let value = ecx.eval_operand(self)?;
         let value_ty = ecx.operand_ty(self);
         Ok((value, value_ty))
-    }
-}
-
-
-/// FIXME: expose trans::monomorphize::resolve_closure
-pub fn resolve_closure<'a, 'tcx> (
-    tcx: TyCtxt<'a, 'tcx, 'tcx>,
-    def_id: DefId,
-    substs: ty::ClosureSubsts<'tcx>,
-    requested_kind: ty::ClosureKind,
-) -> ty::Instance<'tcx> {
-    let actual_kind = substs.closure_kind(def_id, tcx);
-    match needs_fn_once_adapter_shim(actual_kind, requested_kind) {
-        Ok(true) => fn_once_adapter_instance(tcx, def_id, substs),
-        _ => ty::Instance::new(def_id, substs.substs)
-    }
-}
-
-fn fn_once_adapter_instance<'a, 'tcx>(
-    tcx: TyCtxt<'a, 'tcx, 'tcx>,
-    closure_did: DefId,
-    substs: ty::ClosureSubsts<'tcx>,
-) -> ty::Instance<'tcx> {
-    debug!("fn_once_adapter_shim({:?}, {:?})",
-           closure_did,
-           substs);
-    let fn_once = tcx.lang_items().fn_once_trait().unwrap();
-    let call_once = tcx.associated_items(fn_once)
-        .find(|it| it.kind == ty::AssociatedKind::Method)
-        .unwrap().def_id;
-    let def = ty::InstanceDef::ClosureOnceShim { call_once };
-
-    let self_ty = tcx.mk_closure_from_closure_substs(
-        closure_did, substs);
-
-    let sig = substs.closure_sig(closure_did, tcx);
-    let sig = tcx.erase_late_bound_regions_and_normalize(&sig);
-    assert_eq!(sig.inputs().len(), 1);
-    let substs = tcx.mk_substs([
-        Kind::from(self_ty),
-        Kind::from(sig.inputs()[0]),
-    ].iter().cloned());
-
-    debug!("fn_once_adapter_shim: self_ty={:?} sig={:?}", self_ty, sig);
-    ty::Instance { def, substs }
-}
-
-fn needs_fn_once_adapter_shim(actual_closure_kind: ty::ClosureKind,
-                              trait_closure_kind: ty::ClosureKind)
-                              -> Result<bool, ()>
-{
-    match (actual_closure_kind, trait_closure_kind) {
-        (ty::ClosureKind::Fn, ty::ClosureKind::Fn) |
-        (ty::ClosureKind::FnMut, ty::ClosureKind::FnMut) |
-        (ty::ClosureKind::FnOnce, ty::ClosureKind::FnOnce) => {
-            // No adapter needed.
-           Ok(false)
-        }
-        (ty::ClosureKind::Fn, ty::ClosureKind::FnMut) => {
-            // The closure fn `llfn` is a `fn(&self, ...)`.  We want a
-            // `fn(&mut self, ...)`. In fact, at trans time, these are
-            // basically the same thing, so we can just return llfn.
-            Ok(false)
-        }
-        (ty::ClosureKind::Fn, ty::ClosureKind::FnOnce) |
-        (ty::ClosureKind::FnMut, ty::ClosureKind::FnOnce) => {
-            // The closure fn `llfn` is a `fn(&self, ...)` or `fn(&mut
-            // self, ...)`.  We want a `fn(self, ...)`. We can produce
-            // this by doing something like:
-            //
-            //     fn call_once(self, ...) { call_mut(&self, ...) }
-            //     fn call_once(mut self, ...) { call_mut(&mut self, ...) }
-            //
-            // These are both the same at trans time.
-            Ok(true)
-        }
-        _ => Err(()),
     }
 }
 
