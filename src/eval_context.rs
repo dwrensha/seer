@@ -168,13 +168,6 @@ impl<'tcx> ::std::ops::Deref for ValTy<'tcx> {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
-pub struct PtrAndAlign {
-    pub ptr: Pointer,
-    /// Remember whether this lvalue is *supposed* to be aligned.
-    pub aligned: bool,
-}
-
 impl<'a, 'tcx> HasDataLayout for &'a EvalContext<'a, 'tcx> {
     #[inline]
     fn data_layout(&self) -> &layout::TargetDataLayout {
@@ -714,7 +707,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         }
     }
 
-    pub fn layout_is_packed(&self, layout: TyLayout<'tcx>) -> bool {
+    pub fn layout_is_packed(&self, _layout: TyLayout<'tcx>) -> bool {
 // TODO. See https://github.com/rust-lang/rust/pull/46436
 //        for i in layout.fields.index_by_increasing_offset() {
 //            let field = layout.field(ccx, i);
