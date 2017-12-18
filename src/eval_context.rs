@@ -714,6 +714,17 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         }
     }
 
+    pub fn layout_is_packed(&self, layout: TyLayout<'tcx>) -> bool {
+// TODO. See https://github.com/rust-lang/rust/pull/46436
+//        for i in layout.fields.index_by_increasing_offset() {
+//            let field = layout.field(ccx, i);
+//            if layout.align.abi() < field.align.abi() {
+//                return true;
+//            }
+//        }
+        return false
+    }
+
     /// Returns the field type and whether the field is packed
     pub fn get_field_ty(
         &self,
@@ -723,7 +734,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         let layout = self.type_layout(ty)?.field(self, field_index)?;
         Ok(TyAndPacked {
             ty: layout.ty,
-            packed: layout.is_packed()
+            packed: self.layout_is_packed(layout)
         })
     }
 
@@ -1087,25 +1098,25 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         ty: Ty<'tcx>
     ) -> EvalResult<'tcx> {
         let mut layout = self.type_layout(ty)?;
-        let mut _packed = layout.is_packed();
+        let mut _packed = self.layout_is_packed(layout);
 
         // er, this is kinda fishy
         while layout.fields.count() != 2
             || layout.field(&self, 0)?.size.bytes() == 0
             || layout.field(&self, 1)?.size.bytes() == 0 {
                 layout = layout.field(&self, 0)?;
-                _packed |= layout.is_packed();
+                _packed |= self.layout_is_packed(layout);
             }
 
         assert_eq!(layout.fields.count(), 2);
         let field_0 = layout.field(&self, 0)?;
         let field_1 = layout.field(&self, 1)?;
-        assert_eq!(
-            field_0.is_packed(),
-            field_1.is_packed(),
-            "the two fields must agree on being packed"
-        );
-        _packed |= field_0.is_packed();
+//        assert_eq!(
+//            field_0.is_packed(),
+//            field_1.is_packed(),
+//            "the two fields must agree on being packed"
+//        );
+//        _packed |= field_0.is_packed();
         let field_0_ptr = ptr.offset(layout.fields.offset(0).bytes(), (&self).data_layout())?.into();
         let field_1_ptr = ptr.offset(layout.fields.offset(1).bytes(), (&self).data_layout())?.into();
 
