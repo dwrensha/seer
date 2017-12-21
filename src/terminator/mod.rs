@@ -112,7 +112,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     ty::TyFnPtr(sig) => {
                         let fn_ptr = self.eval_operand_to_primval(func)?.to_ptr()?;
                         let instance = self.memory.get_fn(fn_ptr)?;
-                        let instance_ty = instance.def.def_ty(self.tcx);
+                        let instance_ty = instance.ty(self.tcx);
                         let instance_ty = self.monomorphize(instance_ty, instance.substs);
                         match instance_ty.sty {
                             ty::TyFnDef(..) => {
