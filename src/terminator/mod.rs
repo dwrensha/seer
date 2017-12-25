@@ -229,6 +229,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
 
             DropAndReplace { .. } => unimplemented!(),
             Resume => unimplemented!(),
+            Abort => unimplemented!(),
             Unreachable => Err(EvalError::Unreachable),
             Yield { .. } => unimplemented!(),
             GeneratorDrop => unimplemented!(),
