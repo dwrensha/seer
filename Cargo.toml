@@ -26,4 +26,4 @@ cargo_metadata = "0.1"
 seer-z3 = "0.1.0"
 
 [dev-dependencies]
-compiletest_rs = "0.3.2"
+compiletest_rs = "0.3.4"
