@@ -19,8 +19,8 @@ name = "cargo-seer"
 [dependencies]
 
 byteorder = { version = "1.1", features = ["i128"]}
-env_logger = "0.3.3"
-log = "0.3.6"
+env_logger = "0.5.0-rc.1"
+log = "0.4"
 log_settings = "0.1.1"
 cargo_metadata = "0.1"
 seer-z3 = "0.1.0"
