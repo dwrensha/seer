@@ -1133,7 +1133,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     I32 => 4,
                     I64 => 8,
                     I128 => 16,
-                    Is => self.memory.pointer_size(),
+                    Isize => self.memory.pointer_size(),
                 };
                 PrimValKind::from_int_size(size)
             }
@@ -1146,7 +1146,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     U32 => 4,
                     U64 => 8,
                     U128 => 16,
-                    Us => self.memory.pointer_size(),
+                    Usize => self.memory.pointer_size(),
                 };
                 PrimValKind::from_uint_size(size)
             }
@@ -1262,7 +1262,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     I32 => 4,
                     I64 => 8,
                     I128 => 16,
-                    Is => self.memory.pointer_size(),
+                    Isize => self.memory.pointer_size(),
                 };
 
                 if !self.memory.points_to_concrete(ptr, size)? {
@@ -1285,7 +1285,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     U32 => 4,
                     U64 => 8,
                     U128 => 16,
-                    Us => self.memory.pointer_size(),
+                    Usize => self.memory.pointer_size(),
                 };
 
                 if !self.memory.points_to_concrete(ptr, size)? {
