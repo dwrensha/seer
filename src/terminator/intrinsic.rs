@@ -507,7 +507,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     // the last field).
                     let (unsized_size, unsized_align) = match ty.sty {
                         ty::TyAdt(def, substs) => {
-                            let last_field = def.struct_variant().fields.last().unwrap();
+                            let last_field = def.non_enum_variant().fields.last().unwrap();
                             let field_ty = self.field_ty(substs, last_field);
                             self.size_and_align_of_dst(field_ty, value)?
                         }
