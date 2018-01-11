@@ -4,7 +4,7 @@ use syntax::ast::{IntTy, UintTy};
 use rustc_const_math::ConstFloat;
 use error::{EvalResult, EvalError};
 use eval_context::EvalContext;
-use memory::{Pointer, SByte};
+use memory::{MemoryPointer, SByte};
 use value::PrimVal;
 
 impl<'a, 'tcx> EvalContext<'a, 'tcx> {
@@ -118,7 +118,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         }
     }
 
-    fn cast_from_ptr(&self, ptr: Pointer, ty: Ty<'tcx>) -> EvalResult<'tcx, PrimVal> {
+    fn cast_from_ptr(&self, ptr: MemoryPointer, ty: Ty<'tcx>) -> EvalResult<'tcx, PrimVal> {
         use rustc::ty::TypeVariants::*;
         match ty.sty {
             // Casting to a reference or fn pointer is not permitted by rustc, no need to support it here.

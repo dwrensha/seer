@@ -14,7 +14,7 @@ use syntax::ast;
 
 use error::{EvalError, EvalResult};
 use lvalue::{Global, GlobalId, Lvalue, LvalueExtra};
-use memory::{Memory, Pointer};
+use memory::{Memory, MemoryPointer};
 use value::{PrimVal, PrimValKind, Value};
 
 
@@ -41,7 +41,7 @@ pub struct EvalContext<'a, 'tcx: 'a> {
 
     /// Environment variables set by `setenv`
     /// Miri does not expose env vars from the host to the emulated program
-    pub(crate) env_vars: HashMap<Vec<u8>, Pointer>,
+    pub(crate) env_vars: HashMap<Vec<u8>, MemoryPointer>,
 }
 
 impl <'a, 'tcx: 'a> Clone for EvalContext<'a, 'tcx> {
@@ -230,7 +230,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         }
     }
 
-    pub fn alloc_ptr(&mut self, ty: Ty<'tcx>) -> EvalResult<'tcx, Pointer> {
+    pub fn alloc_ptr(&mut self, ty: Ty<'tcx>) -> EvalResult<'tcx, MemoryPointer> {
         let substs = self.substs();
         self.alloc_ptr_with_substs(ty, substs)
     }
@@ -239,7 +239,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         &mut self,
         ty: Ty<'tcx>,
         substs: &'tcx Substs<'tcx>
-    ) -> EvalResult<'tcx, Pointer> {
+    ) -> EvalResult<'tcx, MemoryPointer> {
         let size = self.type_size_with_substs(ty, substs)?.expect("cannot alloc memory for unsized type");
         let align = self.type_align_with_substs(ty, substs)?;
         self.memory.allocate(size, align)
@@ -1087,7 +1087,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         &mut self,
         a: PrimVal,
         b: PrimVal,
-        ptr: Pointer,
+        ptr: MemoryPointer,
         ty: Ty<'tcx>
     ) -> EvalResult<'tcx> {
         let mut layout = self.type_layout(ty)?;
@@ -1195,7 +1195,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         }
     }
 
-    pub(super) fn read_value(&mut self, ptr: Pointer, ty: Ty<'tcx>) -> EvalResult<'tcx, Value> {
+    pub(super) fn read_value(&mut self, ptr: MemoryPointer, ty: Ty<'tcx>) -> EvalResult<'tcx, Value> {
         if let Some(val) = self.try_read_value(ptr, ty)? {
             Ok(val)
         } else {
@@ -1203,7 +1203,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         }
     }
 
-    pub(crate) fn read_ptr(&mut self, ptr: Pointer, pointee_ty: Ty<'tcx>) -> EvalResult<'tcx, Value> {
+    pub(crate) fn read_ptr(&mut self, ptr: MemoryPointer, pointee_ty: Ty<'tcx>) -> EvalResult<'tcx, Value> {
         let p = self.memory.read_ptr(ptr)?;
         if self.type_is_sized(pointee_ty) {
             Ok(Value::ByVal(p))
@@ -1227,7 +1227,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         }
     }
 
-    fn try_read_value(&mut self, ptr: Pointer, ty: Ty<'tcx>) -> EvalResult<'tcx, Option<Value>> {
+    fn try_read_value(&mut self, ptr: MemoryPointer, ty: Ty<'tcx>) -> EvalResult<'tcx, Option<Value>> {
         use syntax::ast::FloatTy;
 
         if !ptr.has_concrete_offset() {

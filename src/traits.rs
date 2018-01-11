@@ -1,7 +1,7 @@
 use rustc::traits::{self, Reveal};
 
 use eval_context::EvalContext;
-use memory::{Pointer};
+use memory::{MemoryPointer};
 use value::{Value, PrimVal};
 
 use rustc::hir::def_id::DefId;
@@ -44,7 +44,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
     /// The `trait_ref` encodes the erased self type. Hence if we are
     /// making an object `Foo<Trait>` from a value of type `Foo<T>`, then
     /// `trait_ref` would map `T:Trait`.
-    pub fn get_vtable(&mut self, ty: Ty<'tcx>, trait_ref: ty::PolyTraitRef<'tcx>) -> EvalResult<'tcx, Pointer> {
+    pub fn get_vtable(&mut self, ty: Ty<'tcx>, trait_ref: ty::PolyTraitRef<'tcx>) -> EvalResult<'tcx, MemoryPointer> {
         debug!("get_vtable(trait_ref={:?})", trait_ref);
 
         let size = self.type_size(trait_ref.self_ty())?.expect("can't create a vtable for an unsized type");
@@ -74,7 +74,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         Ok(vtable)
     }
 
-    pub fn read_drop_type_from_vtable(&mut self, vtable: Pointer) -> EvalResult<'tcx, Option<ty::Instance<'tcx>>> {
+    pub fn read_drop_type_from_vtable(&mut self, vtable: MemoryPointer) -> EvalResult<'tcx, Option<ty::Instance<'tcx>>> {
         // we don't care about the pointee type, we just want a pointer
         let np = self.tcx.mk_nil_ptr();
         let drop_fn = match self.read_ptr(vtable, np)? {
@@ -89,7 +89,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
 
     pub fn read_size_and_align_from_vtable(
         &self,
-        vtable: Pointer,
+        vtable: MemoryPointer,
     ) -> EvalResult<'tcx, (Size, Align)> {
         let pointer_size = self.memory.pointer_size();
         let size = self.memory.read_usize(vtable.offset(pointer_size, self.data_layout())?)?;

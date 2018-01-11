@@ -7,7 +7,7 @@ use rustc::ty::{self, Ty};
 use error::{EvalError, EvalResult};
 use eval_context::{EvalContext, ValTy};
 use lvalue::{Lvalue, LvalueExtra};
-use memory::{Pointer};
+use memory::{MemoryPointer};
 use value::{PrimVal, PrimValKind, Value};
 
 impl<'a, 'tcx> EvalContext<'a, 'tcx> {
@@ -331,7 +331,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                         ptr.to_ptr()?.offset.as_primval(),
                         byte_offset,
                         PrimValKind::U64);
-                    let new_ptr = Pointer::with_primval_offset(ptr.to_ptr()?.alloc_id, new_offset);
+                    let new_ptr = MemoryPointer::with_primval_offset(ptr.to_ptr()?.alloc_id, new_offset);
                     self.write_primval(dest, PrimVal::Ptr(new_ptr), dest_ty)?;
                 }
             }

@@ -7,7 +7,7 @@ use std::cmp::Ordering;
 use error::{EvalError, EvalResult};
 use eval_context::{EvalContext, ValTy};
 use lvalue::Lvalue;
-use memory::{Pointer, PointerOffset, SByte};
+use memory::{MemoryPointer, PointerOffset, SByte};
 use value::{
     PrimVal,
     PrimValKind,
@@ -303,13 +303,13 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
     fn ptr_int_arithmetic(
         &self,
         bin_op: mir::BinOp,
-        left: Pointer,
+        left: MemoryPointer,
         right: i128,
         signed: bool,
     ) -> EvalResult<'tcx, (PrimVal, bool)> {
         use rustc::mir::BinOp::*;
 
-        fn map_to_primval((res, over) : (Pointer, bool)) -> (PrimVal, bool) {
+        fn map_to_primval((res, over) : (MemoryPointer, bool)) -> (PrimVal, bool) {
             (PrimVal::Ptr(res), over)
         }
 
@@ -332,7 +332,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 let right = right as u64;
                 if right & base_mask == base_mask {
                     // Case 1: The base address bits are all preserved, i.e., right is all-1 there
-                    (PrimVal::Ptr(Pointer::new(left.alloc_id, left_offset & right)), false)
+                    (PrimVal::Ptr(MemoryPointer::new(left.alloc_id, left_offset & right)), false)
                 } else if right & base_mask == 0 {
                     // Case 2: The base address bits are all taken away, i.e., right is all-0 there
                     (PrimVal::from_u128((left_offset & right) as u128), false)
@@ -413,9 +413,9 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
     fn abstract_ptr_ops(
         &mut self,
         bin_op: mir::BinOp,
-        left: Pointer,
+        left: MemoryPointer,
         _left_kind: PrimValKind,
-        right: Pointer,
+        right: MemoryPointer,
         _right_kind: PrimValKind,
     ) -> EvalResult<'tcx, (PrimVal, bool)> {
         use rustc::mir::BinOp::*;

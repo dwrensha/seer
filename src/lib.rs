@@ -61,7 +61,7 @@ pub use lvalue::{
 pub use memory::{
     AllocId,
     Memory,
-    Pointer,
+    MemoryPointer,
 };
 
 pub use value::{
