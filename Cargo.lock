@@ -62,7 +62,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "env_logger"
-version = "0.5.0-rc.1"
+version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "chrono 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -241,7 +241,7 @@ dependencies = [
  "byteorder 1.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "cargo_metadata 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
  "compiletest_rs 0.3.5 (registry+https://github.com/rust-lang/crates.io-index)",
- "env_logger 0.5.0-rc.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "env_logger 0.5.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "log 0.4.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "log_settings 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "seer-z3 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -430,7 +430,7 @@ dependencies = [
 "checksum compiletest_rs 0.3.5 (registry+https://github.com/rust-lang/crates.io-index)" = "9d58e648d0fb482578b63212d0cedce5c8b21ae45f6f49736a92b70e9adec05c"
 "checksum diff 0.1.11 (registry+https://github.com/rust-lang/crates.io-index)" = "3c2b69f912779fbb121ceb775d74d51e915af17aaebc38d28a592843a2dd0a3a"
 "checksum dtoa 0.4.2 (registry+https://github.com/rust-lang/crates.io-index)" = "09c3753c3db574d215cba4ea76018483895d7bff25a31b49ba45db21c48e50ab"
-"checksum env_logger 0.5.0-rc.1 (registry+https://github.com/rust-lang/crates.io-index)" = "658f1c9e73b57fffbd88cdc6292729d855593545e64ef33e4a152bd38610c57b"
+"checksum env_logger 0.5.1 (registry+https://github.com/rust-lang/crates.io-index)" = "5b2c179f215e998e9e22c159f6b43b6fdbeff2e552f61c7d270b1c1a0209b100"
 "checksum filetime 0.1.14 (registry+https://github.com/rust-lang/crates.io-index)" = "aa75ec8f7927063335a9583e7fa87b0110bb888cf766dc01b54c0ff70d760c8e"
 "checksum getopts 0.2.15 (registry+https://github.com/rust-lang/crates.io-index)" = "65922871abd2f101a2eb0eaebadc66668e54a87ad9c3dd82520b5f86ede5eff9"
 "checksum itoa 0.3.4 (registry+https://github.com/rust-lang/crates.io-index)" = "8324a32baf01e2ae060e9de58ed0bc2320c9a2833491ee36cd3b4c414de4db8c"
