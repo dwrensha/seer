@@ -439,29 +439,21 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                                     }
                                     Value::ByVal(PrimVal::Undef) => {}
                                     other => {
-                                        let mut layout = layout;
-                                        let mut skip_arg_locals = true;
-                                        'outer: loop {
-                                            for i in 0..layout.fields.count() {
-                                                let field = layout.field(&self, i)?;
-                                                if layout.fields.offset(i).bytes() == 0 && layout.size == field.size {
-                                                    layout = field;
-                                                    skip_arg_locals = false;
-                                                    continue 'outer;
-                                                } else if skip_arg_locals {
-                                                    arg_locals.next().unwrap();
-                                                }
+                                        // There can be at most one element in the tuple with nonzero size.
+                                        let mut wrote_arg = false;
+                                        for (i, arg_local) in arg_locals.enumerate() {
+                                            let field = layout.field(&self, i)?;
+                                            if layout.size == field.size {
+                                                let dest =
+                                                    self.eval_lvalue(&mir::Place::Local(arg_local))?;
+                                                self.write_value(ValTy { value: other, ty: field.ty }, dest)?;
+                                                wrote_arg = true;
+                                                break;
                                             }
-                                            break;
                                         }
-                                        let dest = self.eval_lvalue(&mir::Place::Local(
-                                            arg_locals.next().unwrap(),
-                                        ))?;
-                                        let valty = ValTy {
-                                            value: other,
-                                            ty: layout.ty,
-                                        };
-                                        self.write_value(valty, dest)?;
+                                        if !wrote_arg {
+                                            bug!("failed to unpack arguments from tuple {:?}", other)
+                                        }
                                     }
                                 }
                             } else {
