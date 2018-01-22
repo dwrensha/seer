@@ -50,11 +50,7 @@ impl<'a> CompilerCalls<'a> for SeerCompilerCalls {
         let mut control = self.0.build_controller(sess, matches);
         control.after_hir_lowering.callback = Box::new(after_hir_lowering);
         control.after_analysis.callback = after_analysis_run_main(self.1.clone());
-
-        if std::env::var("MIRI_HOST_TARGET") != Ok("yes".to_owned()) {
-            // only fully compile targets on the host
-            control.after_analysis.stop = Compilation::Stop;
-        }
+        control.after_analysis.stop = Compilation::Stop;
         control
     }
 }
