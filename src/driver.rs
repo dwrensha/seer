@@ -8,7 +8,6 @@ use rustc::session::config::{self, Input, ErrorOutputType};
 use syntax;
 use syntax::ast::{MetaItemKind, NestedMetaItemKind, self};
 use std::path::PathBuf;
-use std;
 
 struct SeerCompilerCalls(RustcDefaultCalls, ::ExecutionConfig);
 
