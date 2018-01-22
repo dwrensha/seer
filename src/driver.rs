@@ -36,6 +36,7 @@ impl<'a> CompilerCalls<'a> for SeerCompilerCalls {
     }
     fn late_callback(
         &mut self,
+        trans: &::rustc_trans_utils::trans_crate::TransCrate,
         matches: &getopts::Matches,
         sess: &Session,
         cstore: &CrateStore,
@@ -43,7 +44,7 @@ impl<'a> CompilerCalls<'a> for SeerCompilerCalls {
         odir: &Option<PathBuf>,
         ofile: &Option<PathBuf>
     ) -> Compilation {
-        self.0.late_callback(matches, sess, cstore, input, odir, ofile)
+        self.0.late_callback(trans, matches, sess, cstore, input, odir, ofile)
     }
     fn build_controller(&mut self, sess: &Session, matches: &getopts::Matches) -> CompileController<'a> {
         let mut control = self.0.build_controller(sess, matches);
