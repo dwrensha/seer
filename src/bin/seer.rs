@@ -59,15 +59,15 @@ fn init_logger() {
 fn main() {
     let mut args: Vec<String> = ::std::env::args().collect();
 
-   if args.iter().any(|a| a == "--version" || a == "-V") {
+    if args.iter().any(|a| a == "--version" || a == "-V") {
         show_version();
         return;
     }
 
-   if args.iter().any(|a| a == "--help" || a == "-h") {
+    if args.iter().any(|a| a == "--help" || a == "-h") {
         show_help();
         return;
-   }
+    }
 
     init_logger();
     let consumer = |complete: ::seer::ExecutionComplete | {
