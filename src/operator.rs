@@ -1,5 +1,5 @@
 use rustc::mir;
-use rustc::ty::{self, Ty};
+use rustc::ty::{Ty};
 use rustc_const_math::ConstFloat;
 use syntax::ast::FloatTy;
 use std::cmp::Ordering;
@@ -153,7 +153,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         if !left_kind.is_float() && !right_kind.is_float() {
             match bin_op {
                 Offset if left_kind == Ptr && right_kind == usize => {
-                    let pointee_ty = left_ty.builtin_deref(true, ty::LvaluePreference::NoPreference).expect("Offset called on non-ptr type").ty;
+                    let pointee_ty = left_ty.builtin_deref(true).expect("Offset called on non-ptr type").ty;
                     let ptr = self.pointer_offset(left, pointee_ty, right.to_bytes()? as i64)?;
                     return Ok((ptr, false));
                 },
