@@ -202,7 +202,7 @@ impl<'a, 'tcx> LayoutOf<Ty<'tcx>> for &'a EvalContext<'a, 'tcx> {
     type TyLayout = EvalResult<'tcx, TyLayout<'tcx>>;
 
     fn layout_of(self, ty: Ty<'tcx>) -> Self::TyLayout {
-        (self.tcx, ::rustc::ty::ParamEnv::empty(Reveal::All)).layout_of(ty)
+        self.tcx.layout_of(::rustc::ty::ParamEnv::empty(Reveal::All).and(ty))
             .map_err(|layout| EvalError::Layout(layout).into())
     }
 }
