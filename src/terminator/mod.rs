@@ -234,6 +234,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             Yield { .. } => unimplemented!(),
             GeneratorDrop => unimplemented!(),
             FalseEdges { .. } => unimplemented!(),
+            FalseUnwind { .. } => unimplemented!(),
         }
     }
 
