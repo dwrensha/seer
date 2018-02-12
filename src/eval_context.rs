@@ -686,7 +686,9 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     }
                     self.write_primval(dest, PrimVal::Bytes(discr_val), dest_ty)?;
                 } else {
-                    bug!("rustc only generates Rvalue::Discriminant for enums");
+                    //bug!("rustc only generates Rvalue::Discriminant for enums");
+                    // Getting here is no longer a bug. Is there something else we should be doing?
+                    // See https://github.com/rust-lang/rust/pull/48092.
                 }
             },
         }
