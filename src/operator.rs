@@ -417,19 +417,74 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                         self.memory.constraints.add_binop_constraint(mir::BinOp::Lt, res, left, left_kind)
                     }
                     I8 | I16 | I32 | I64 | I128 => {
-                        // TODO signed overflow check
-                        PrimVal::from_bool(false)
+                        self.abstract_signed_add_overflowed(left, left_kind, right, right_kind, res)
                     }
-                    F32 | F64 => {
-                        PrimVal::from_bool(false)
-                    }
-                    Bool | Char | Ptr | FnPtr => unreachable!()
+                    F32 | F64 => PrimVal::from_bool(false),
+                    Bool | Char | Ptr | FnPtr => unreachable!(),
                 };
                 Ok((res, overflow))
             }
-            // TODO overflow checks on other binops
+            mir::BinOp::Sub => {
+                let res = self.memory.constraints.add_binop_constraint(bin_op, left, right, left_kind);
+                let overflow = match left_kind {
+                    U8 | U16 | U32 | U64 | U128 => {
+                        self.memory.constraints.add_binop_constraint(mir::BinOp::Gt, res, left, left_kind)
+                    }
+                    I8 | I16 | I32 | I64 | I128 => {
+                        let right_neg = self.memory.constraints.add_unop_constraint(mir::UnOp::Neg, right, right_kind);
+                        self.abstract_signed_add_overflowed(left, left_kind, right_neg, right_kind, res)
+                    }
+                    F32 | F64 => PrimVal::from_bool(false),
+                    Bool | Char | Ptr | FnPtr => unreachable!(),
+                };
+                Ok((res, overflow))
+            }
             _ => Ok((self.memory.constraints.add_binop_constraint(bin_op, left, right, left_kind), PrimVal::from_bool(false)))
         }
+    }
+
+    /// Returns an abstract PrimVal that is true if the signed operation `left + right` overflows.
+    ///
+    /// `res` is assumed to be the result of `left + right`.
+    fn abstract_signed_add_overflowed(
+        &mut self,
+        left: PrimVal,
+        left_kind: PrimValKind,
+        right: PrimVal,
+        right_kind: PrimValKind,
+        res: PrimVal
+    ) -> PrimVal {
+        // The basic idea is
+        // ```
+        // both positive => overflow = res < 0
+        // both negative => overflow = res > 0
+        // _ => false
+        // ```
+        // Using only supported operations, this becomes
+        // ```
+        // if left >= 0 {
+        //     if right >= 0 {
+        //         res < 0
+        //     } else {
+        //         false
+        //     }
+        // } else {
+        //     if right >= 0 {
+        //         false
+        //     } else {
+        //         res >= 0
+        //     }
+        // }
+        // ```
+        use value::PrimValKind::*;
+        let zero = PrimVal::from_i128(0);
+        let left_positive = self.memory.constraints.add_binop_constraint(mir::BinOp::Ge, left, zero, left_kind);
+        let right_positive = self.memory.constraints.add_binop_constraint(mir::BinOp::Ge, right, zero, right_kind);
+        let res_positive = self.memory.constraints.add_binop_constraint(mir::BinOp::Ge, res, zero, left_kind);
+        let res_negative = self.memory.constraints.add_unop_constraint(mir::UnOp::Not, res_positive, Bool);
+        let left_positive_then = self.memory.constraints.add_if_then_else(right_positive, Bool, res_negative, PrimVal::from_bool(false));
+        let left_positive_else = self.memory.constraints.add_if_then_else(right_positive, Bool, PrimVal::from_bool(false), res_positive);
+        self.memory.constraints.add_if_then_else(left_positive, Bool, left_positive_then, left_positive_else)
     }
 
     fn abstract_ptr_ops(
