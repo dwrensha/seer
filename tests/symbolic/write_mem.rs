@@ -10,11 +10,11 @@ fn main() {
     // should panic on [ 7, 3, 21, 21 ]
 
     if data.len() >= 4 {
-        let mut v = [0; BUFFER_LENGTH];
-        v[0] += data[3];
-        v[1] = v[0] + data[2];
+        let mut v: [u8; BUFFER_LENGTH] = [0; BUFFER_LENGTH];
+        v[0] = v[0].wrapping_add(data[3]);
+        v[1] = v[0].wrapping_add(data[2]);
         if v[0] == 21 && v[1] == 42 {
-            v[0] = data[0] + data[1];
+            v[0] = data[0].wrapping_add(data[1]);
             v[3] = data[0];
             if v[3] == 7 && v[0] == 10 {
                 panic!()

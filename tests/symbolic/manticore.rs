@@ -13,7 +13,7 @@ fn check_char_0(mut ch: u8) -> Result<(), ()> {
 
 fn check_char_1(mut ch: u8) -> Result<(), ()> {
     ch ^= 107;
-    ch += 67;
+    ch = ch.wrapping_add(67);
 
     if ch == 105 {
         Ok(())
@@ -23,7 +23,7 @@ fn check_char_1(mut ch: u8) -> Result<(), ()> {
 }
 
 fn check_char_2(mut ch: u8) -> Result<(), ()> {
-    ch += 61;
+    ch = ch.wrapping_add(61);
     ch *= 2;
 
     if ch == 252 {
@@ -66,7 +66,7 @@ fn check_char_5(mut ch: u8) -> Result<(), ()> {
 }
 
 fn check_char_6(mut ch: u8) -> Result<(), ()> {
-    ch += 71;
+    ch = ch.wrapping_add(71);
 
     if ch == 138 {
         Ok(())
@@ -86,8 +86,8 @@ fn check_char_7(mut ch: u8) -> Result<(), ()> {
 }
 
 fn check_char_8(mut ch: u8) -> Result<(), ()> {
-    ch += 41;
-    ch += 53;
+    ch = ch.wrapping_add(41);
+    ch = ch.wrapping_add(53);
 
     if ch == 176 {
         Ok(())
@@ -98,8 +98,8 @@ fn check_char_8(mut ch: u8) -> Result<(), ()> {
 
 fn check_char_9(mut ch: u8) -> Result<(), ()> {
     ch ^= 61;
-    ch += 41;
-    ch += 11;
+    ch = ch.wrapping_add(41);
+    ch = ch.wrapping_add(11);
 
     if ch == 172 {
         Ok(())
@@ -110,8 +110,8 @@ fn check_char_9(mut ch: u8) -> Result<(), ()> {
 
 fn check_char_10(mut ch: u8) -> Result<(), ()> {
     ch ^= 47;
-    ch += 29;
-    ch += 67;
+    ch = ch.wrapping_add(29);
+    ch = ch.wrapping_add(67);
 
     if ch == 114 {
         Ok(())
