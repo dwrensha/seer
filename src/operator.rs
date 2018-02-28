@@ -60,7 +60,13 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
     ) -> EvalResult<'tcx, bool> {
         let (val, overflowed) = self.binop_with_overflow(op, left, right)?;
         self.write_primval(dest, val, dest_ty)?;
-        Ok(overflowed.to_bool()?)
+        if overflowed.is_concrete() {
+            Ok(overflowed.to_bool()?)
+        } else {
+            // keeps the old behavior of ignoring overflow for symbolic ops
+            // this works because the return value is never used
+            Ok(false)
+        }
     }
 }
 
