@@ -326,7 +326,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
 
         Ok(match bin_op {
             Sub =>
-                // The only way this can overflow is by underflowing, so signdeness of the right operands does not matter
+                // The only way this can overflow is by underflowing, so signedness of the right operands does not matter
                 map_to_primval(left.overflowing_signed_offset(-right, self.memory.layout)),
             Add if signed =>
                 map_to_primval(left.overflowing_signed_offset(right, self.memory.layout)),
