@@ -25,7 +25,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         op: mir::BinOp,
         left: &mir::Operand<'tcx>,
         right: &mir::Operand<'tcx>,
-    ) -> EvalResult<'tcx, (PrimVal, bool)> {
+    ) -> EvalResult<'tcx, (PrimVal, PrimVal)> {
         let left_ty    = self.operand_ty(left);
         let right_ty   = self.operand_ty(right);
         let left_val   = self.eval_operand_to_primval(left)?;
@@ -44,7 +44,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         dest_ty: Ty<'tcx>,
     ) -> EvalResult<'tcx> {
         let (val, overflowed) = self.binop_with_overflow(op, left, right)?;
-        let val = Value::ByValPair(val, PrimVal::from_bool(overflowed));
+        let val = Value::ByValPair(val, overflowed);
         self.write_value(ValTy { value: val, ty: dest_ty}, dest)
     }
 
@@ -60,7 +60,13 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
     ) -> EvalResult<'tcx, bool> {
         let (val, overflowed) = self.binop_with_overflow(op, left, right)?;
         self.write_primval(dest, val, dest_ty)?;
-        Ok(overflowed)
+        if overflowed.is_concrete() {
+            Ok(overflowed.to_bool()?)
+        } else {
+            // keeps the old behavior of ignoring overflow for symbolic ops
+            // this works because the return value is never used
+            Ok(false)
+        }
     }
 }
 
@@ -68,7 +74,7 @@ macro_rules! overflow {
     ($op:ident, $l:expr, $r:expr) => ({
         let (val, overflowed) = $l.$op($r);
         let primval = PrimVal::Bytes(val as u128);
-        Ok((primval, overflowed))
+        Ok((primval, PrimVal::from_bool(overflowed)))
     })
 }
 
@@ -122,7 +128,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         left_ty: Ty<'tcx>,
         right: PrimVal,
         right_ty: Ty<'tcx>,
-    ) -> EvalResult<'tcx, (PrimVal, bool)> {
+    ) -> EvalResult<'tcx, (PrimVal, PrimVal)> {
         use rustc::mir::BinOp::*;
         use value::PrimValKind::*;
 
@@ -155,7 +161,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 Offset if left_kind == Ptr && right_kind == usize => {
                     let pointee_ty = left_ty.builtin_deref(true).expect("Offset called on non-ptr type").ty;
                     let ptr = self.pointer_offset(left, pointee_ty, right.to_bytes()? as i64)?;
-                    return Ok((ptr, false));
+                    return Ok((ptr, PrimVal::from_bool(false)));
                 },
                 // These work on anything
                 Eq if left_kind == right_kind => {
@@ -165,7 +171,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                         (PrimVal::Undef, _) | (_, PrimVal::Undef) => return Err(EvalError::ReadUndefBytes),
                         _ => false,
                     };
-                    return Ok((PrimVal::from_bool(result), false));
+                    return Ok((PrimVal::from_bool(result), PrimVal::from_bool(false)));
                 }
                 Ne if left_kind == right_kind => {
                     let result = match (left, right) {
@@ -174,7 +180,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                         (PrimVal::Undef, _) | (_, PrimVal::Undef) => return Err(EvalError::ReadUndefBytes),
                         _ => true,
                     };
-                    return Ok((PrimVal::from_bool(result), false));
+                    return Ok((PrimVal::from_bool(result), PrimVal::from_bool(false)));
                 }
                 // These need both pointers to be in the same allocation
                 Lt | Le | Gt | Ge | Sub
@@ -200,7 +206,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                             }
                             _ => bug!("We already established it has to be one of these operators."),
                         };
-                        return Ok((PrimVal::from_bool(res), false));
+                        return Ok((PrimVal::from_bool(res), PrimVal::from_bool(false)));
                     } else {
                         // Both are pointers, but from different allocations.
                         return Err(EvalError::InvalidPointerMath);
@@ -297,7 +303,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             }
         };
 
-        Ok((val, false))
+        Ok((val, PrimVal::from_bool(false)))
     }
 
     fn ptr_int_arithmetic(
@@ -306,11 +312,11 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         left: MemoryPointer,
         right: i128,
         signed: bool,
-    ) -> EvalResult<'tcx, (PrimVal, bool)> {
+    ) -> EvalResult<'tcx, (PrimVal, PrimVal)> {
         use rustc::mir::BinOp::*;
 
-        fn map_to_primval((res, over) : (MemoryPointer, bool)) -> (PrimVal, bool) {
-            (PrimVal::Ptr(res), over)
+        fn map_to_primval((res, over) : (MemoryPointer, bool)) -> (PrimVal, PrimVal) {
+            (PrimVal::Ptr(res), PrimVal::from_bool(over))
         }
 
         let left_offset = match left.offset {
@@ -332,10 +338,10 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 let right = right as u64;
                 if right & base_mask == base_mask {
                     // Case 1: The base address bits are all preserved, i.e., right is all-1 there
-                    (PrimVal::Ptr(MemoryPointer::new(left.alloc_id, left_offset & right)), false)
+                    (PrimVal::Ptr(MemoryPointer::new(left.alloc_id, left_offset & right)), PrimVal::from_bool(false))
                 } else if right & base_mask == 0 {
                     // Case 2: The base address bits are all taken away, i.e., right is all-0 there
-                    (PrimVal::from_u128((left_offset & right) as u128), false)
+                    (PrimVal::from_u128((left_offset & right) as u128), PrimVal::from_bool(false))
                 } else {
                     return Err(EvalError::ReadPointerAsBytes);
                 }
@@ -355,7 +361,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         left_kind: PrimValKind,
         right: PrimVal,
         mut right_kind: PrimValKind,
-    ) -> EvalResult<'tcx, (PrimVal, bool)> {
+    ) -> EvalResult<'tcx, (PrimVal, PrimVal)> {
 
         // These ops can have an RHS with a different numeric type.
         if bin_op == mir::BinOp::Shl || bin_op == mir::BinOp::Shr {
@@ -368,7 +374,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                             for idx in num_bytes .. 8 {
                                 buffer[idx] = abytes[idx - num_bytes];
                             }
-                            return Ok((PrimVal::Abstract(buffer), false));
+                            return Ok((PrimVal::Abstract(buffer), PrimVal::from_bool(false)));
                         }
                         mir::BinOp::Shr => {
                             if !left_kind.is_signed_int() {
@@ -376,7 +382,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                                 for idx in num_bytes .. 8 {
                                     buffer[idx - num_bytes] = abytes[idx];
                                 }
-                                return Ok((PrimVal::Abstract(buffer), false));
+                                return Ok((PrimVal::Abstract(buffer), PrimVal::from_bool(false)));
                             }
                         }
                         _ => unimplemented!(),
@@ -407,7 +413,78 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             let msg = format!("unimplemented binary op: {:?}, {:?}, {:?}", left, right, bin_op);
             return Err(EvalError::Unimplemented(msg));
         }
-        Ok((self.memory.constraints.add_binop_constraint(bin_op, left, right, left_kind), false))
+
+        use value::PrimValKind::*;
+        match bin_op {
+            mir::BinOp::Add => {
+                let res = self.memory.constraints.add_binop_constraint(bin_op, left, right, left_kind);
+                let overflow = match left_kind {
+                    U8 | U16 | U32 | U64 | U128 => {
+                        self.memory.constraints.add_binop_constraint(mir::BinOp::Lt, res, left, left_kind)
+                    }
+                    I8 | I16 | I32 | I64 | I128 => {
+                        // The basic idea is
+                        // ```
+                        // both positive => overflow = res < 0
+                        // both negative => overflow = res > 0
+                        // _ => false
+                        // ```
+                        // Using only supported operations, this becomes
+                        // ```
+                        // if left >= 0 {
+                        //     if right >= 0 {
+                        //         res < 0
+                        //     } else {
+                        //         false
+                        //     }
+                        // } else {
+                        //     if right >= 0 {
+                        //         false
+                        //     } else {
+                        //         res >= 0
+                        //     }
+                        // }
+                        // ```
+                        let zero = PrimVal::from_i128(0);
+                        let left_positive = self.memory.constraints.add_binop_constraint(mir::BinOp::Ge, left, zero, left_kind);
+                        let right_positive = self.memory.constraints.add_binop_constraint(mir::BinOp::Ge, right, zero, right_kind);
+                        let res_positive = self.memory.constraints.add_binop_constraint(mir::BinOp::Ge, res, zero, left_kind);
+                        let res_negative = self.memory.constraints.add_unop_constraint(mir::UnOp::Not, res_positive, Bool);
+                        let left_positive_then = self.memory.constraints.add_if_then_else(right_positive, Bool, res_negative, PrimVal::from_bool(false));
+                        let left_positive_else = self.memory.constraints.add_if_then_else(right_positive, Bool, PrimVal::from_bool(false), res_positive);
+                        self.memory.constraints.add_if_then_else(left_positive, Bool, left_positive_then, left_positive_else)
+                    }
+                    F32 | F64 => PrimVal::from_bool(false),
+                    Bool | Char | Ptr | FnPtr => unreachable!(),
+                };
+                Ok((res, overflow))
+            }
+            mir::BinOp::Sub => {
+                let res = self.memory.constraints.add_binop_constraint(bin_op, left, right, left_kind);
+                let overflow = match left_kind {
+                    U8 | U16 | U32 | U64 | U128 => {
+                        self.memory.constraints.add_binop_constraint(mir::BinOp::Gt, res, left, left_kind)
+                    }
+                    I8 | I16 | I32 | I64 | I128 => {
+                        // same idea as for Add, but we first negate right
+                        // negation can lead to overflow, so we replace the bool right_positive
+                        // with right_negative
+                        let zero = PrimVal::from_i128(0);
+                        let left_positive = self.memory.constraints.add_binop_constraint(mir::BinOp::Ge, left, zero, left_kind);
+                        let right_negative = self.memory.constraints.add_binop_constraint(mir::BinOp::Lt, right, zero, right_kind);
+                        let res_positive = self.memory.constraints.add_binop_constraint(mir::BinOp::Ge, res, zero, left_kind);
+                        let res_negative = self.memory.constraints.add_unop_constraint(mir::UnOp::Not, res_positive, Bool);
+                        let left_positive_then = self.memory.constraints.add_if_then_else(right_negative, Bool, res_negative, PrimVal::from_bool(false));
+                        let left_positive_else = self.memory.constraints.add_if_then_else(right_negative, Bool, PrimVal::from_bool(false), res_positive);
+                        self.memory.constraints.add_if_then_else(left_positive, Bool, left_positive_then, left_positive_else)
+                    }
+                    F32 | F64 => PrimVal::from_bool(false),
+                    Bool | Char | Ptr | FnPtr => unreachable!(),
+                };
+                Ok((res, overflow))
+            }
+            _ => Ok((self.memory.constraints.add_binop_constraint(bin_op, left, right, left_kind), PrimVal::from_bool(false)))
+        }
     }
 
     fn abstract_ptr_ops(
@@ -417,7 +494,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         _left_kind: PrimValKind,
         right: MemoryPointer,
         _right_kind: PrimValKind,
-    ) -> EvalResult<'tcx, (PrimVal, bool)> {
+    ) -> EvalResult<'tcx, (PrimVal, PrimVal)> {
         use rustc::mir::BinOp::*;
         use value::PrimValKind::*;
         if left.alloc_id != right.alloc_id {
@@ -429,7 +506,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         } else {
             let result = self.memory.constraints.add_binop_constraint(
                 bin_op, left.offset.as_primval(), right.offset.as_primval(), U64);
-            Ok((result, false))
+            Ok((result, PrimVal::from_bool(false)))
         }
     }
 
