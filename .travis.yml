@@ -1,8 +1,11 @@
 language: rust
 rust:
   - nightly
-before_script:
-- rustup target add i686-unknown-linux-gnu
+#
+#before_script:
+#- rustup target add i686-unknown-linux-gnu
+# TODO: renable this once https://github.com/rust-lang/rust/issues/49033 is fixed.
+#
 os:
   - linux
 addons:
