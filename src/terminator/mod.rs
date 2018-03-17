@@ -56,7 +56,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     let mut target_block = targets[targets.len() - 1];
 
                     for (index, const_int) in values.iter().enumerate() {
-                        let prim = PrimVal::Bytes(const_int.to_u128_unchecked());
+                        let prim = PrimVal::Bytes(*const_int);
                         if discr_prim.to_bytes()? == prim.to_bytes()? {
                             target_block = targets[index];
                             break;
@@ -69,7 +69,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     let mut feasible_blocks_with_constraints = Vec::new();
                     let mut otherwise_constraints = Vec::new();
                     for (index, const_int) in values.iter().enumerate() {
-                        let prim = PrimVal::Bytes(const_int.to_u128_unchecked());
+                        let prim = PrimVal::Bytes(*const_int);
                         let eq_constraint = Constraint::new_compare(
                             mir::BinOp::Eq, discr_kind, discr_prim, prim);
                         otherwise_constraints.push(
@@ -116,10 +116,15 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                         let instance_ty = self.monomorphize(instance_ty, instance.substs);
                         match instance_ty.sty {
                             ty::TyFnDef(..) => {
-                                let sig = self.erase_lifetimes(&sig);
                                 let real_sig = instance_ty.fn_sig(self.tcx);
-                                let real_sig = self.erase_lifetimes(&real_sig);
-                                let real_sig = self.tcx.fully_normalize_associated_types_in(&real_sig);
+                                let sig = self.tcx.normalize_erasing_late_bound_regions(
+                                    ty::ParamEnv::reveal_all(),
+                                    &sig,
+                                );
+                                let real_sig = self.tcx.normalize_erasing_late_bound_regions(
+                                    ty::ParamEnv::reveal_all(),
+                                    &real_sig,
+                                );
                                 if !self.check_sig_compat(sig, real_sig)? {
                                     return Err(EvalError::FunctionPointerTyMismatch(real_sig, sig));
                                 }
@@ -285,7 +290,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     // Second argument must be a tuple matching the argument list of sig
                     let snd_ty = real_sig.inputs_and_output[1];
                     match snd_ty.sty {
-                        TypeVariants::TyTuple(tys, _) if sig.inputs().len() == tys.len() =>
+                        TypeVariants::TyTuple(tys) if sig.inputs().len() == tys.len() =>
                             if sig.inputs().iter().zip(tys).all(|(ty, real_ty)| check_ty_compat(ty, real_ty)) {
                                 return Ok(true)
                             },

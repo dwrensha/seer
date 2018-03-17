@@ -1,5 +1,4 @@
 use rustc::mir;
-use rustc::traits::Reveal;
 use rustc::ty::layout::{Size, Align};
 use rustc::ty::subst::Substs;
 use rustc::ty::{self, Ty};
@@ -303,7 +302,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
 
             "needs_drop" => {
                 let ty = instance.substs.type_at(0);
-                let env = ty::ParamEnv::empty(Reveal::All);
+                let env = ty::ParamEnv::empty();
                 let needs_drop = ty.needs_drop(self.tcx, env);
                 self.write_primval(dest, PrimVal::from_bool(needs_drop), dest_ty)?;
             }
@@ -511,9 +510,9 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                             let field_ty = self.field_ty(substs, last_field);
                             self.size_and_align_of_dst(field_ty, value)?
                         }
-                        ty::TyTuple(ref types, _) => {
-                            let field_ty = types.last().unwrap();
-                            let field_ty = self.tcx.fully_normalize_monormophic_ty(field_ty);
+                        ty::TyTuple(ref types) => {
+                            let field_ty: ty::Ty<'tcx> = types.last().unwrap();
+                            let field_ty = self.tcx.normalize_erasing_regions(ty::ParamEnv::reveal_all(), field_ty);
                             self.size_and_align_of_dst(field_ty, value)?
                         }
                         _ => bug!("We already checked that we know this type"),
@@ -569,7 +568,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         param_substs: &Substs<'tcx>,
         f: &ty::FieldDef,
     ) -> ty::Ty<'tcx> {
-        self.tcx.fully_normalize_associated_types_in(&f.ty(self.tcx, param_substs))
+        self.tcx.normalize_erasing_regions(ty::ParamEnv::reveal_all(), &f.ty(self.tcx, param_substs))
     }
 }
 

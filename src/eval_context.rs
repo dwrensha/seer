@@ -4,13 +4,11 @@ use std::fmt::Write;
 use rustc::hir::def_id::DefId;
 use rustc::middle::const_val::ConstVal;
 use rustc::mir;
-use rustc::traits::{Reveal};
 use rustc::ty::layout::{self, Size, HasDataLayout, LayoutOf, TyLayout};
 use rustc::ty::subst::{Subst, Substs, Kind};
 use rustc::ty::{self, Ty, TyCtxt, TypeFoldable, Binder};
 use rustc_data_structures::indexed_vec::Idx;
 use syntax::codemap::{self, DUMMY_SP};
-use syntax::ast;
 
 use error::{EvalError, EvalResult};
 use lvalue::{Global, GlobalId, Lvalue, LvalueExtra};
@@ -202,7 +200,7 @@ impl<'a, 'tcx> LayoutOf<Ty<'tcx>> for &'a EvalContext<'a, 'tcx> {
     type TyLayout = EvalResult<'tcx, TyLayout<'tcx>>;
 
     fn layout_of(self, ty: Ty<'tcx>) -> Self::TyLayout {
-        self.tcx.layout_of(::rustc::ty::ParamEnv::empty(Reveal::All).and(ty))
+        self.tcx.layout_of(::rustc::ty::ParamEnv::empty().and(ty))
             .map_err(|layout| EvalError::Layout(layout).into())
     }
 }
@@ -276,48 +274,50 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         Ok(Value::ByValPair(PrimVal::Ptr(ptr), PrimVal::from_u128(s.len() as u128)))
     }
 
-    pub(super) fn const_to_value(&mut self, const_val: &ConstVal<'tcx>) -> EvalResult<'tcx, Value> {
-        use rustc::middle::const_val::ConstVal::*;
-        use rustc_const_math::ConstFloat;
-
-        let primval = match *const_val {
-            Integral(const_int) => PrimVal::Bytes(const_int.to_u128_unchecked()),
-
-            Float(ConstFloat { ty: ast::FloatTy::F32, bits }) => PrimVal::Bytes(bits),
-            Float(ConstFloat { ty: ast::FloatTy::F64, bits }) => PrimVal::Bytes(bits),
-
-            Bool(b) => PrimVal::from_bool(b),
-            Char(c) => PrimVal::from_char(c),
-
-            Str(ref s) => return self.str_to_value(s),
-
-            ByteStr(ref bs) => {
-                let ptr = self.memory.allocate_cached(bs.data)?;
-                PrimVal::Ptr(ptr)
+    fn rustc_primval_to_primval(&mut self, primval: mir::interpret::PrimVal) -> EvalResult<'tcx, PrimVal> {
+        match primval {
+            mir::interpret::PrimVal::Bytes(b) => {
+                Ok(PrimVal::Bytes(b))
             }
+            mir::interpret::PrimVal::Undef => {
+                Ok(PrimVal::Undef)
+            }
+            mir::interpret::PrimVal::Ptr(ptr) => {
+                let EvalContext { ref mut memory, ref tcx, .. } = *self;
+                Ok(PrimVal::Ptr(memory.get_rustc_allocation(tcx, ptr)?))
+            }
+        }
+    }
 
-            Unevaluated(def_id, substs) => {
+    pub(super) fn const_to_value(&mut self, const_val: &ConstVal<'tcx>) -> EvalResult<'tcx, Value> {
+        Ok(match *const_val {
+            ConstVal::Unevaluated(def_id, substs) => {
                 let instance = self.resolve_associated_const(def_id, substs);
                 let cid = GlobalId {
                     instance,
                     promoted: None,
                 };
-                return Ok(self.globals.get(&cid).expect("static/const not cached").value);
+                self.globals.get(&cid).expect("static/const not cached").value
             }
 
-            Aggregate(..) |
-            Variant(_) => panic!("should not have aggregate or variant constants in MIR"),
-            Function(_, _)  => PrimVal::Undef,
-        };
-
-        Ok(Value::ByVal(primval))
+            ConstVal::Value(mir::interpret::Value::ByRef(..)) => {
+                unimplemented!()
+            }
+            ConstVal::Value(mir::interpret::Value::ByVal(prim_val)) => {
+                Value::ByVal(self.rustc_primval_to_primval(prim_val)?)
+            }
+            ConstVal::Value(mir::interpret::Value::ByValPair(p1, p2)) => {
+                Value::ByValPair(self.rustc_primval_to_primval(p1)?,
+                                 self.rustc_primval_to_primval(p2)?)
+            }
+        })
     }
 
     pub(super) fn resolve(&self, def_id: DefId, substs: &'tcx Substs<'tcx>) -> EvalResult<'tcx, ty::Instance<'tcx>> {
-        let substs = self.tcx.trans_apply_param_substs(self.substs(), &substs);
+        let substs = self.tcx.subst_and_normalize_erasing_regions(self.substs(), ::rustc::ty::ParamEnv::reveal_all(), &substs);
         ::rustc::ty::Instance::resolve(
             self.tcx,
-            ::rustc::ty::ParamEnv::empty(Reveal::All), // XXX ?
+            ::rustc::ty::ParamEnv::empty(), // XXX ?
             def_id,
             substs,
         ).ok_or(EvalError::TypeckError.into()) // turn error prop into a panic to expose associated type in const issue
@@ -326,7 +326,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
     pub(super) fn type_is_sized(&self, ty: Ty<'tcx>) -> bool {
         // generics are weird, don't run this function on a generic
         assert!(!ty.needs_subst());
-        ty.is_sized(self.tcx, ty::ParamEnv::empty(Reveal::All), DUMMY_SP)
+        ty.is_sized(self.tcx.at(DUMMY_SP), ty::ParamEnv::empty())
     }
 
     pub fn load_mir(&self, instance: ty::InstanceDef<'tcx>) -> EvalResult<'tcx, &'tcx mir::Mir<'tcx>> {
@@ -340,9 +340,8 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
     pub fn monomorphize(&self, ty: Ty<'tcx>, substs: &'tcx Substs<'tcx>) -> Ty<'tcx> {
         // miri doesn't care about lifetimes, and will choke on some crazy ones
         // let's simply get rid of them
-        let without_lifetimes = self.tcx.erase_regions(&ty);
-        let substituted = without_lifetimes.subst(self.tcx, substs);
-        self.tcx.fully_normalize_associated_types_in(&substituted)
+        let substituted = ty.subst(self.tcx, substs);
+        self.tcx.normalize_erasing_regions(ty::ParamEnv::reveal_all(), substituted)
     }
 
     pub fn erase_lifetimes<T>(&self, value: &Binder<T>) -> T
@@ -539,7 +538,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
 
             Repeat(ref operand, _) => {
                 let (elem_ty, length) = match dest_ty.sty {
-                    ty::TyArray(elem_ty, n) => (elem_ty, n.val.to_const_int().unwrap().to_u64().unwrap()),
+                    ty::TyArray(elem_ty, n) => (elem_ty, n.val.unwrap_u64()),
                     _ => bug!("tried to assign array-repeat to non-array type {:?}", dest_ty),
                 };
                 self.inc_step_counter_and_check_limit(length)?;
@@ -679,7 +678,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 if let ty::TyAdt(adt_def, _) = ty.sty {
                     trace!("Read discriminant {}, valid discriminants {:?}", discr_val, adt_def.discriminants(self.tcx).collect::<Vec<_>>());
                     if adt_def.discriminants(self.tcx).all(|v| {
-                        discr_val != v.to_u128_unchecked()
+                        discr_val != v.val
                     })
                     {
                         return Err(EvalError::InvalidDiscriminant);
@@ -873,8 +872,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             }
             layout::Variants::Tagged { .. } => {
                 let discr_val = dest_ty.ty_adt_def().unwrap()
-                    .discriminant_for_variant(self.tcx, variant_index)
-                    .to_u128_unchecked();
+                    .discriminant_for_variant(self.tcx, variant_index).val;
 
                 let (discr_dest, discr) = self.lvalue_field(dest, mir::Field::new(0), layout)?;
                 self.write_primval(discr_dest, PrimVal::Bytes(discr_val), discr.ty)?;
@@ -1362,7 +1360,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         match (&src_pointee_ty.sty, &dest_pointee_ty.sty) {
             (&ty::TyArray(_, length), &ty::TySlice(_)) => {
                 let ptr = src.read_ptr(&self.memory)?;
-                let len = PrimVal::from_u128(length.val.to_const_int().unwrap().to_u64().unwrap() as u128);
+                let len = PrimVal::from_u128(length.val.to_raw_bits().unwrap());
                 self.write_value(ValTy { value: Value::ByValPair(ptr, len), ty: dest_ty }, dest)
             }
             (&ty::TyDynamic(..), &ty::TyDynamic(..)) => {
@@ -1549,7 +1547,7 @@ impl IntegerExt for layout::Integer {
 
 pub fn monomorphize_field_ty<'a, 'tcx:'a >(tcx: TyCtxt<'a, 'tcx, 'tcx>, f: &ty::FieldDef, substs: &'tcx Substs<'tcx>) -> Ty<'tcx> {
     let substituted = f.ty(tcx, substs);
-    tcx.fully_normalize_associated_types_in(&substituted)
+    tcx.normalize_erasing_regions(ty::ParamEnv::reveal_all(), substituted)
 }
 
 pub fn is_inhabited<'a, 'tcx: 'a>(tcx: TyCtxt<'a, 'tcx, 'tcx>, ty: Ty<'tcx>) -> bool {
@@ -1580,7 +1578,7 @@ pub fn apply_param_substs<'a, 'tcx, T>(tcx: TyCtxt<'a, 'tcx, 'tcx>,
                                        param_substs: &Substs<'tcx>,
                                        value: &T)
                                        -> T
-    where T: ::rustc::infer::TransNormalize<'tcx>
+    where T: TypeFoldable<'tcx>
 {
     debug!("apply_param_substs(param_substs={:?}, value={:?})", param_substs, value);
     let substituted = value.subst(tcx, param_substs);
@@ -1612,7 +1610,7 @@ impl<'a, 'tcx> ::rustc::ty::fold::TypeFolder<'tcx, 'tcx> for AssociatedTypeNorma
         if !ty.has_projections() {
             ty
         } else {
-            self.tcx.fully_normalize_associated_types_in(&ty)
+            self.tcx.normalize_erasing_regions(ty::ParamEnv::reveal_all(), &ty)
         }
     }
 }
@@ -1624,5 +1622,5 @@ pub fn resolve_drop_in_place<'a, 'tcx>(
 {
     let def_id = tcx.require_lang_item(::rustc::middle::lang_items::DropInPlaceFnLangItem);
     let substs = tcx.intern_substs(&[Kind::from(ty)]);
-    ::rustc::ty::Instance::resolve(tcx, ::rustc::ty::ParamEnv::empty(Reveal::All), def_id, substs).unwrap()
+    ::rustc::ty::Instance::resolve(tcx, ::rustc::ty::ParamEnv::empty(), def_id, substs).unwrap()
 }

@@ -173,6 +173,8 @@ pub struct Memory<'a, 'tcx> {
     /// Actual memory allocations (arbitrary bytes, may contain pointers into other allocations).
     alloc_map: HashMap<AllocId, Allocation>,
 
+    rustc_allocations: HashMap<mir::interpret::AllocId, AllocId>,
+
     /// The AllocId to assign to the next new allocation. Always incremented, never gets smaller.
     next_id: AllocId,
 
@@ -222,6 +224,7 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
     pub fn new(layout: &'a TargetDataLayout, max_memory: u64) -> Self {
         Memory {
             alloc_map: HashMap::new(),
+            rustc_allocations: HashMap::new(),
             functions: HashMap::new(),
             function_alloc_cache: HashMap::new(),
             next_id: AllocId(2),
@@ -293,6 +296,55 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
         self.next_id.0 += 1;
         self.alloc_map.insert(id, alloc);
         Ok(MemoryPointer::new(id, 0))
+    }
+
+    pub fn get_rustc_allocation(&mut self, tcx: &ty::TyCtxt<'a, 'tcx, 'tcx>, ptr: mir::interpret::MemoryPointer)
+                                -> EvalResult<'tcx, MemoryPointer>
+    {
+        if self.rustc_allocations.contains_key(&ptr.alloc_id) {
+            Ok(MemoryPointer::new(AllocId(self.rustc_allocations[&ptr.alloc_id].0), ptr.offset))
+        } else {
+            let static_ = tcx
+                .interpret_interner
+                .get_corresponding_static_def_id(ptr.alloc_id);
+
+            if let Some(_def_id) = static_ {
+                unimplemented!()
+            } else if let Some(alloc) = tcx.interpret_interner.get_alloc(ptr.alloc_id) {
+                let size = alloc.bytes.len() as u64;
+                let static_kind = match alloc.runtime_mutability {
+                    ::syntax::ast::Mutability::Mutable =>  StaticKind::Mutable,
+                    ::syntax::ast::Mutability::Immutable =>  StaticKind::Immutable,
+                };
+                let mut new_alloc = Allocation {
+                    bytes: vec![],
+                    relocations: BTreeMap::new(),
+                    undef_mask: UndefMask::new(size),
+                    align : alloc.align.abi(),
+                    static_kind,
+                };
+
+                for &b in &alloc.bytes {
+                    new_alloc.bytes.push(SByte::Concrete(b));
+                }
+
+                // XXX
+                new_alloc.undef_mask.set_range_inbounds(0, size, true);
+
+                if !alloc.relocations.is_empty() {
+                    // TODO
+                    unimplemented!()
+                }
+
+                let id = self.next_id;
+                self.next_id.0 += 1;
+                self.alloc_map.insert(id, new_alloc);
+                self.rustc_allocations.insert(ptr.alloc_id, id);
+                Ok(MemoryPointer::new(id, ptr.offset))
+            } else {
+                panic!("missing allocation {:?}", ptr.alloc_id);
+            }
+        }
     }
 
     // TODO(solson): Track which allocations were returned from __rust_allocate and report an error

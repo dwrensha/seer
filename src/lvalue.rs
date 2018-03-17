@@ -88,7 +88,7 @@ impl<'tcx> Lvalue<'tcx> {
 
     pub(super) fn elem_ty_and_len(self, ty: Ty<'tcx>) -> (Ty<'tcx>, u64) {
         match ty.sty {
-            ty::TyArray(elem, n) => (elem, n.val.to_const_int().unwrap().to_u64().unwrap()  as u64),
+            ty::TyArray(elem, n) => (elem, n.val.unwrap_u64()),
 
             ty::TySlice(elem) => {
                 match self {
