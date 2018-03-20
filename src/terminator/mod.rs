@@ -518,6 +518,33 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         match instance.def {
             ty::InstanceDef::Item(def_id) => {
                 match self.tcx.item_path_str(def_id).as_str() {
+                    "seer_helper::mksym" => {
+                        let (lval, block) = destination.expect("seer_helper::mksym() does not diverge");
+                        let args_res: EvalResult<Vec<Value>> = arg_operands.iter()
+                            .map(|arg| self.eval_operand(arg))
+                            .collect();
+                        let args = args_res?;
+
+                        match args[0] {
+                            Value::ByVal(PrimVal::Ptr(ptr)) => {
+                                let len = self.type_size(instance.substs.type_at(0))?.expect("instance?");
+                                self.memory.write_fresh_abstract_bytes(ptr, len as u64)?;
+                            }
+                            _ => {
+                                unimplemented!()
+                            }
+                        }
+                        let dest_ty = sig.output();
+
+                        // FIXME make this more robust
+                        self.write_discriminant_value(
+                            dest_ty,
+                            lval,
+                            0)?;
+
+                        self.goto_block(block);
+                        return Ok(true);
+                    }
                     "std::io::stdin" => {
                         let (_lval, block) = destination.expect("std::io::stdin() does not diverge");
                         self.goto_block(block);
