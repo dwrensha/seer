@@ -101,6 +101,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 // TODO
             }
 
+            UserAssertTy(..) => {}
             EndRegion(..) => {}
 
             // Defined to do nothing. These are added by optimization passes, to avoid changing the
