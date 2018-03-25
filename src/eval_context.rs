@@ -674,7 +674,16 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             Discriminant(ref lvalue) => {
                 let lval = self.eval_lvalue(lvalue)?;
                 let ty = self.lvalue_ty(lvalue);
-                let discr_val = self.read_discriminant_value(lval, ty)?;
+
+                // TODO: Why is this mask necessary? Does the need for it indicate some kind of bug
+                // in rustc? Is there a better way to accomplish this?
+                // (The mask was added to make tests/run-pass/issue-15523-big.rs pass.)
+                let mut mask: u128 = 0;
+                for idx in 0..self.layout_of(dest_ty)?.size.bytes() {
+                    mask = mask | (0xffu128 << (idx * 8));
+                }
+
+                let discr_val = mask & self.read_discriminant_value(lval, ty)?;
                 if let ty::TyAdt(adt_def, _) = ty.sty {
                     trace!("Read discriminant {}, valid discriminants {:?}", discr_val, adt_def.discriminants(self.tcx).collect::<Vec<_>>());
                     if adt_def.discriminants(self.tcx).all(|v| {
