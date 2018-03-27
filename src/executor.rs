@@ -6,7 +6,7 @@ use rustc::hir::def_id::DefId;
 use rustc::hir::map::definitions::DefPathData;
 use rustc::mir;
 use rustc::ty::{self, TyCtxt, Ty};
-use syntax::codemap::{DUMMY_SP};
+use syntax::codemap::{DUMMY_SP, CodeMap};
 
 use constraints::{Constraint, SatisfiedVarGroup};
 use error::{StaticEvalError, EvalError};
@@ -79,6 +79,7 @@ impl <'a, 'tcx: 'a> Executor<'a, 'tcx> {
         def_id: DefId,
         limits: ResourceLimits,
         config: ExecutionConfig,
+        codemap: &'a CodeMap
     )
         -> Self
     {
@@ -89,7 +90,7 @@ impl <'a, 'tcx: 'a> Executor<'a, 'tcx> {
             config: config,
         };
 
-        let mut ecx = EvalContext::new(tcx, limits);
+        let mut ecx = EvalContext::new(tcx, limits, codemap);
         let instance = ty::Instance::mono(tcx, def_id);
         let mir = ecx.load_mir(instance.def).expect("main function's MIR not found");
 

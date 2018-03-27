@@ -528,7 +528,11 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                         match args[0] {
                             Value::ByVal(PrimVal::Ptr(ptr)) => {
                                 let len = self.type_size(instance.substs.type_at(0))?.expect("instance?");
-                                let label = format!("{:?}", span);
+                                let source = match self.codemap.span_to_snippet(span) {
+                                    Ok(s) => s,
+                                    Err(e) => bug!("failed to get source for span {:?}: {:?}", span, e),
+                                };
+                                let label = format!("{}", source);
                                 self.memory.write_fresh_var_group(ptr, len as u64, label)?;
                             }
                             _ => {

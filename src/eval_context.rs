@@ -42,6 +42,9 @@ pub struct EvalContext<'a, 'tcx: 'a> {
     /// Environment variables set by `setenv`
     /// Miri does not expose env vars from the host to the emulated program
     pub(crate) env_vars: HashMap<Vec<u8>, MemoryPointer>,
+
+    /// CodeMap allows us to look up the source behind a Span
+    pub(crate) codemap: &'a codemap::CodeMap,
 }
 
 impl <'a, 'tcx: 'a> Clone for EvalContext<'a, 'tcx> {
@@ -54,6 +57,7 @@ impl <'a, 'tcx: 'a> Clone for EvalContext<'a, 'tcx> {
             stack_limit: self.stack_limit,
             steps_remaining: self.steps_remaining,
             env_vars: self.env_vars.clone(),
+            codemap: self.codemap,
         }
     }
 }
@@ -218,7 +222,7 @@ impl<'c, 'b, 'a, 'tcx> LayoutOf<Ty<'tcx>>
 }
 
 impl<'a, 'tcx> EvalContext<'a, 'tcx> {
-    pub fn new(tcx: TyCtxt<'a, 'tcx, 'tcx>, limits: ResourceLimits) -> Self {
+    pub fn new(tcx: TyCtxt<'a, 'tcx, 'tcx>, limits: ResourceLimits, codemap: &'a codemap::CodeMap) -> Self {
         EvalContext {
             tcx,
             memory: Memory::new(&tcx.data_layout, limits.memory_size),
@@ -227,6 +231,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             stack_limit: limits.stack_limit,
             steps_remaining: limits.step_limit,
             env_vars: HashMap::new(),
+            codemap: codemap,
         }
     }
 
