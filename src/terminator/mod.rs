@@ -528,7 +528,8 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                         match args[0] {
                             Value::ByVal(PrimVal::Ptr(ptr)) => {
                                 let len = self.type_size(instance.substs.type_at(0))?.expect("instance?");
-                                self.memory.write_fresh_abstract_bytes(ptr, len as u64)?;
+                                let label = format!("{:?}", span);
+                                self.memory.write_fresh_var_group(ptr, len as u64, label)?;
                             }
                             _ => {
                                 unimplemented!()

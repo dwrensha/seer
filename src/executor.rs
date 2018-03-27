@@ -8,7 +8,7 @@ use rustc::mir;
 use rustc::ty::{self, TyCtxt, Ty};
 use syntax::codemap::{DUMMY_SP};
 
-use constraints::Constraint;
+use constraints::{Constraint, SatisfiedVarGroup};
 use error::{StaticEvalError, EvalError};
 use lvalue::{Lvalue};
 use eval_context::{EvalContext, Frame, ResourceLimits, StackPopCleanup};
@@ -69,7 +69,7 @@ impl ExecutionConfig {
 
 #[derive(Debug)]
 pub struct ExecutionComplete {
-    pub input: Vec<u8>,
+    pub input: Vec<SatisfiedVarGroup>,
     pub result: Result<(), StaticEvalError>,
 }
 

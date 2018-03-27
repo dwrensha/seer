@@ -25,19 +25,31 @@ impl VarType {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-enum VarOrigin {
-    StdIn, // abstract byte read from stdin
-    Inner, // anything else
+/// A labeled group of variables that should be displayed together.
+#[derive(Clone, Debug)]
+struct VarGroup {
+    label: String,
+    /// Each entry represents a variable as an ID and a type.
+    variables: Vec<(u32, VarType)>,
 }
 
 #[derive(Clone, Debug)]
 pub struct ConstraintContext {
-    /// Each entry represents a variable. The index is the variable ID and
-    /// the value is the variable's type.
-    variables: Vec<(VarType, VarOrigin)>,
-
+    next_id: u32,
+    /// Each entry represents a variable as an ID and a type. These are used
+    /// for intermediate results in constraints and are not displayed.
+    variables_inner: Vec<(u32, VarType)>,
+    /// The group at index 0 is the stdin group
+    var_groups: Vec<VarGroup>,
     constraints: Vec<Constraint>,
+}
+
+/// Holds relevant parts of the solution z3 found when solving a set of constraints.
+#[derive(Clone, Debug)]
+pub struct SatisfiedVarGroup {
+    label: String,
+    /// Variable assignments that satisfy the given constraints.
+    assignments: Vec<u8>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -119,19 +131,47 @@ impl Constraint {
 impl ConstraintContext {
     pub fn new() -> Self {
         ConstraintContext {
-            variables: Vec::new(),
+            next_id: 0,
+            variables_inner: Vec::new(),
+            var_groups: vec![VarGroup {
+                label: "stdin".to_string(),
+                variables: Vec::new(),
+            }],
             constraints: Vec::new(),
         }
     }
 
-    fn allocate_abstract_var(&mut self, var_type: VarType, origin: VarOrigin) -> AbstractVariable {
-        let id = self.variables.len() as u32;
-        self.variables.push((var_type, origin));
+    fn next_id(&mut self) -> u32 {
+        let id = self.next_id;
+        self.next_id += 1;
+        id
+    }
+
+    fn allocate_abstract_var(&mut self, var_type: VarType) -> AbstractVariable {
+        let id = self.next_id();
+        self.variables_inner.push((id, var_type));
         AbstractVariable(id)
     }
 
     pub fn fresh_stdin_byte(&mut self) -> SByte {
-        SByte::Abstract(self.allocate_abstract_var(VarType::BitVec8, VarOrigin::StdIn))
+        let id = self.next_id();
+        self.var_groups[0].variables.push((id, VarType::BitVec8));
+        SByte::Abstract(AbstractVariable(id))
+    }
+
+    pub fn fresh_var_group(&mut self, label: String, size: u32) -> Vec<SByte> {
+        let mut sbytes = Vec::new();
+        let mut vars = Vec::new();
+        for _ in 0..size {
+            let id = self.next_id();
+            sbytes.push(SByte::Abstract(AbstractVariable(id)));
+            vars.push((id, VarType::BitVec8));
+        }
+        self.var_groups.push(VarGroup {
+            label: label,
+            variables: vars,
+        });
+        sbytes
     }
 
     pub fn push_constraint(&mut self, constraint: Constraint) {
@@ -167,7 +207,7 @@ impl ConstraintContext {
         };
 
         for idx in 0..num_bytes {
-            buffer[idx] = SByte::Abstract(self.allocate_abstract_var(var_type, VarOrigin::Inner));
+            buffer[idx] = SByte::Abstract(self.allocate_abstract_var(var_type));
         }
 
         let primval = PrimVal::Abstract(buffer);
@@ -198,7 +238,7 @@ impl ConstraintContext {
 
         let mut buffer = [SByte::Concrete(0); 8];
         for idx in 0..num_bytes {
-            buffer[idx] = SByte::Abstract(self.allocate_abstract_var(var_type, VarOrigin::Inner));
+            buffer[idx] = SByte::Abstract(self.allocate_abstract_var(var_type));
         }
 
         let primval = PrimVal::Abstract(buffer);
@@ -221,7 +261,7 @@ impl ConstraintContext {
         let num_bytes = kind.num_bytes();
         let mut buffer = [SByte::Concrete(0); 8];
         for idx in 0..num_bytes {
-            buffer[idx] = SByte::Abstract(self.allocate_abstract_var(var_type, VarOrigin::Inner));
+            buffer[idx] = SByte::Abstract(self.allocate_abstract_var(var_type));
         }
 
         let lhs = PrimVal::Abstract(buffer);
@@ -237,7 +277,7 @@ impl ConstraintContext {
     }
 
     pub fn new_array(&mut self) -> AbstractVariable {
-        self.allocate_abstract_var(VarType::Array, VarOrigin::Inner)
+        self.allocate_abstract_var(VarType::Array)
     }
 
     pub fn set_array_element_constraint(
@@ -258,7 +298,7 @@ impl ConstraintContext {
         index: PrimVal)
         -> SByte
     {
-        let value = SByte::Abstract(self.allocate_abstract_var(VarType::BitVec8, VarOrigin::Inner));
+        let value = SByte::Abstract(self.allocate_abstract_var(VarType::BitVec8));
         self.push_constraint(
             Constraint::ArrayElement {
                 array, index, value,
@@ -282,38 +322,22 @@ impl ConstraintContext {
         new_array
     }
 
-    pub fn get_satisfying_values(&self) -> Vec<u8> {
+    pub fn get_satisfying_values(&self) -> Vec<SatisfiedVarGroup> {
         let cfg = z3::Config::new();
         let ctx = z3::Context::new(&cfg);
         let solver = z3::Solver::new(&ctx);
 
         let mut consts = Vec::new();
-
-        let mut result_consts = Vec::new();
-
-        for (idx, v) in self.variables.iter().enumerate() {
-            let (var_type, var_origin) = *v;
-            match var_type {
-                VarType::Bool => {
-                    consts.push(ctx.numbered_bool_const(idx as u32));
-                }
-                VarType::BitVec8 => {
-                    consts.push(ctx.numbered_bitvector_const(idx as u32, 8));
-                    if let VarOrigin::StdIn = var_origin {
-                        result_consts.push(ctx.numbered_bitvector_const(idx as u32, 8));
-                    }
-                }
-                VarType::Array => {
-                    consts.push(
-                        ::z3::Ast::new_const(
-                            &::z3::Symbol::from_int(&ctx, idx as u32),
-                            &ctx.array_sort(
-                                &ctx.bitvector_sort(64),
-                                &ctx.bitvector_sort(8))));
-                }
-            }
-
+        for v in self.variables_inner.iter() {
+            consts.push(self.variable_to_ast(&ctx, *v));
         }
+
+        //let mut result_consts = Vec::new();
+
+        //let consts = self.variables_inner.iter().map(|v| self.variable_to_ast(&ctx, *v));
+        // Each group has its variables mapped to z3 ASTs. Keep the labels.
+        let result_consts = self.var_groups.iter().map(
+            |g| (g.label.clone(), g.variables.iter().map(|v| self.variable_to_ast(&ctx, *v))));
 
         for c in &self.constraints {
             solver.assert(&self.constraint_to_ast(&ctx, *c));
@@ -323,8 +347,13 @@ impl ConstraintContext {
         let model = solver.get_model();
 
         let mut result = Vec::new();
-        for rc in result_consts {
-            result.push(model.eval(&rc).unwrap().as_u64().unwrap() as u8);
+        for (label, asts) in result_consts {
+            result.push(SatisfiedVarGroup {
+                label: label,
+                assignments: asts.map(
+                    |ast| model.eval(&ast).unwrap().as_u64().unwrap() as u8)
+                    .collect(),
+            });
         }
 
         result
@@ -348,6 +377,30 @@ impl ConstraintContext {
         }
 
         solver.check()
+    }
+
+    fn variable_to_ast<'a>(
+        &self,
+        ctx: &'a z3::Context,
+        variable: (u32, VarType))
+        -> z3::Ast<'a>
+    {
+        let (idx, var_type) = variable;
+        match var_type {
+            VarType::Bool => {
+                ctx.numbered_bool_const(idx as u32)
+            }
+            VarType::BitVec8 => {
+                ctx.numbered_bitvector_const(idx as u32, 8)
+            }
+            VarType::Array => {
+                ::z3::Ast::new_const(
+                    &::z3::Symbol::from_int(&ctx, idx as u32),
+                    &ctx.array_sort(
+                        &ctx.bitvector_sort(64),
+                        &ctx.bitvector_sort(8)))
+            }
+        }
     }
 
     fn sbyte_to_ast<'a>(
