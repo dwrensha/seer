@@ -1,5 +1,4 @@
 #![feature(
-    i128_type,
     inclusive_range,
     inclusive_range_fields,
     rustc_private,

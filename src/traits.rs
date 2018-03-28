@@ -9,6 +9,7 @@ use rustc::infer::InferCtxt;
 use rustc::ty::subst::Substs;
 use rustc::ty::{self, Ty};
 use rustc::ty::layout::{Size, Align, HasDataLayout};
+use rustc::traits::TraitEngine;
 use syntax::codemap::{DUMMY_SP, Span};
 use syntax::ast;
 
