@@ -20,7 +20,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         match val {
             PrimVal::Abstract(mut sbytes) => {
                 let dest_kind = self.ty_to_primval_kind(dest_ty)?;
-                if (src_kind.is_int() || src_kind == Char) && (dest_kind.is_int() || src_kind == Char) {
+                if (src_kind.is_int() || src_kind == Char) && (dest_kind.is_int() || dest_kind == Char) {
                     let src_size = src_kind.num_bytes();
                     let dest_size = dest_kind.num_bytes();
                     for idx in dest_size .. src_size {
