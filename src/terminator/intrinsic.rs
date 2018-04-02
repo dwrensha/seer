@@ -168,9 +168,9 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     if let PrimVal::Bytes(0) = primval {
                         return Err(EvalError::Intrinsic(format!("{} called on 0", intrinsic_name)));
                     }
-                    numeric_intrinsic(intrinsic_name.trim_right_matches("_nonzero"), primval, kind)?
+                    self.numeric_intrinsic(intrinsic_name.trim_right_matches("_nonzero"), primval, kind)?
                 } else {
-                    numeric_intrinsic(intrinsic_name, primval, kind)?
+                    self.numeric_intrinsic(intrinsic_name, primval, kind)?
                 };
                 self.write_primval(dest, num, ty)?
             }
@@ -570,61 +570,69 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
     ) -> ty::Ty<'tcx> {
         self.tcx.normalize_erasing_regions(ty::ParamEnv::reveal_all(), &f.ty(self.tcx, param_substs))
     }
-}
 
-fn numeric_intrinsic<'tcx>(
-    name: &str,
-    val: PrimVal,
-    kind: PrimValKind,
-) -> EvalResult<'tcx, PrimVal> {
-    match val {
-        PrimVal::Bytes(bytes) => {
-            macro_rules! integer_intrinsic {
-                ($method:ident) => ({
-                    use value::PrimValKind::*;
-                    let result_bytes = match kind {
-                        I8 => (bytes as i8).$method() as u128,
-                        U8 => (bytes as u8).$method() as u128,
-                        I16 => (bytes as i16).$method() as u128,
-                        U16 => (bytes as u16).$method() as u128,
-                        I32 => (bytes as i32).$method() as u128,
-                        U32 => (bytes as u32).$method() as u128,
-                        I64 => (bytes as i64).$method() as u128,
-                        U64 => (bytes as u64).$method() as u128,
-                        I128 => (bytes as i128).$method() as u128,
-                        U128 => bytes.$method() as u128,
-                        _ => bug!("invalid `{}` argument: {:?}", name, bytes),
-                    };
+    fn numeric_intrinsic(
+        &mut self,
+        name: &str,
+        val: PrimVal,
+        kind: PrimValKind,
+    ) -> EvalResult<'tcx, PrimVal> {
+        match val {
+            PrimVal::Bytes(bytes) => {
+                macro_rules! integer_intrinsic {
+                    ($method:ident) => ({
+                        use value::PrimValKind::*;
+                        let result_bytes = match kind {
+                            I8 => (bytes as i8).$method() as u128,
+                            U8 => (bytes as u8).$method() as u128,
+                            I16 => (bytes as i16).$method() as u128,
+                            U16 => (bytes as u16).$method() as u128,
+                            I32 => (bytes as i32).$method() as u128,
+                            U32 => (bytes as u32).$method() as u128,
+                            I64 => (bytes as i64).$method() as u128,
+                            U64 => (bytes as u64).$method() as u128,
+                            I128 => (bytes as i128).$method() as u128,
+                            U128 => bytes.$method() as u128,
+                            _ => bug!("invalid `{}` argument: {:?}", name, bytes),
+                        };
 
-                    PrimVal::Bytes(result_bytes)
-                });
-            }
-
-            let result_val = match name {
-                "bswap" => integer_intrinsic!(swap_bytes),
-                "ctlz" => integer_intrinsic!(leading_zeros),
-                "ctpop" => integer_intrinsic!(count_ones),
-                "cttz" => integer_intrinsic!(trailing_zeros),
-                _ => bug!("not a numeric intrinsic: {}", name),
-            };
-
-            Ok(result_val)
-        }
-        PrimVal::Abstract(mut sbytes) => {
-            match name {
-                "bswap" => {
-                    let num_bytes = kind.num_bytes();
-                    for idx in 0..(num_bytes / 2) {
-                        let tmp = sbytes[idx];
-                        sbytes[idx] = sbytes[num_bytes - idx - 1];
-                        sbytes[num_bytes - idx - 1] = tmp;
-                    }
-                    Ok(PrimVal::Abstract(sbytes))
+                        PrimVal::Bytes(result_bytes)
+                    });
                 }
-                _ => unimplemented!(),
+
+                let result_val = match name {
+                    "bswap" => integer_intrinsic!(swap_bytes),
+                    "ctlz" => integer_intrinsic!(leading_zeros),
+                    "ctpop" => integer_intrinsic!(count_ones),
+                    "cttz" => integer_intrinsic!(trailing_zeros),
+                    _ => bug!("not a numeric intrinsic: {}", name),
+                };
+
+                Ok(result_val)
             }
+            PrimVal::Abstract(mut sbytes) => {
+                match name {
+                    "bswap" => {
+                        let num_bytes = kind.num_bytes();
+                        for idx in 0..(num_bytes / 2) {
+                            let tmp = sbytes[idx];
+                            sbytes[idx] = sbytes[num_bytes - idx - 1];
+                            sbytes[num_bytes - idx - 1] = tmp;
+                        }
+                        Ok(PrimVal::Abstract(sbytes))
+                    }
+                    "cttz" => {
+                        Ok(self.memory.constraints.add_intrinsic_constraint(
+                            ::constraints::NumericIntrinsic::Cttz,
+                            val,
+                            kind))
+                    }
+                    _ => unimplemented!(),
+                }
+            }
+            _ => unimplemented!(),
         }
-        _ => unimplemented!(),
+
     }
 
 }
