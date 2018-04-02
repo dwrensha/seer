@@ -166,3 +166,11 @@ fn symbolic_neg() {
         vec![75]);
 
 }
+
+#[test]
+fn symbolic_trailing_zeros() {
+    expect_single_panic(
+        "tests/symbolic/trailing_zeros.rs",
+        vec![128]);
+
+}
