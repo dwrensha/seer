@@ -1,8 +1,15 @@
 use rustc::mir;
 use z3;
 
+use std::num;
+
 use memory::{AbstractVariable, SByte};
 use value::{PrimVal, PrimValKind};
+
+#[derive(Debug, Clone, Copy)]
+pub enum NumericIntrinsic {
+    Cttz,
+}
 
 #[derive(Debug, Clone, Copy)]
 enum VarType {
@@ -61,6 +68,13 @@ pub enum Constraint {
 
     Compare { op: mir::BinOp, kind: PrimValKind, lhs: PrimVal, rhs: PrimVal, },
 
+    NumericIntrinsic {
+        operator: NumericIntrinsic,
+        kind: PrimValKind,
+        operand: PrimVal,
+        lhs: PrimVal,
+    },
+
     // lhs = if discriminant then then_branch else else_branch
     IfThenElse {
         discriminant: PrimVal,
@@ -107,6 +121,17 @@ impl Constraint {
         lhs: PrimVal,
     ) -> Self {
         Constraint::Unop {
+            operator, kind, operand, lhs,
+        }
+    }
+
+    pub fn new_intrinsic(
+        operator: NumericIntrinsic,
+        kind: PrimValKind,
+        operand: PrimVal,
+        lhs: PrimVal,
+    ) -> Self {
+        Constraint::NumericIntrinsic {
             operator, kind, operand, lhs,
         }
     }
@@ -203,6 +228,29 @@ impl ConstraintContext {
 
         let primval = PrimVal::Abstract(buffer);
         let constraint = Constraint::new_unop(un_op, kind, val, primval);
+
+        self.push_constraint(constraint);
+
+        primval
+    }
+
+    /// Creates a fresh abstract PrimVal `X` and adds a constraint
+    /// `X == intrinsic(val)`. Returns `X`.
+    pub fn add_intrinsic_constraint(
+        &mut self,
+        op: NumericIntrinsic,
+        val: PrimVal,
+        kind: PrimValKind) -> PrimVal {
+
+        let num_bytes = kind.num_bytes();
+
+        let mut buffer = [SByte::Concrete(0); 8];
+        for idx in 0..num_bytes {
+            buffer[idx] = SByte::Abstract(self.allocate_abstract_var(VarType::BitVec8, VarOrigin::Inner));
+        }
+
+        let primval = PrimVal::Abstract(buffer);
+        let constraint = Constraint::new_intrinsic(op, kind, val, primval);
 
         self.push_constraint(constraint);
 
@@ -411,6 +459,15 @@ impl ConstraintContext {
                         self.primval_to_ast(&ctx, operand, kind)))
             }
 
+            Constraint::NumericIntrinsic { operator, kind, lhs, operand, .. } => {
+                self.primval_to_ast(&ctx, lhs, kind)._eq(
+                    &self.mir_intrinsic_to_ast(
+                        &ctx,
+                        operator,
+                        self.primval_to_ast(&ctx, operand, kind),
+                        kind))
+            }
+
             Constraint::Compare { op, lhs, rhs, kind, .. } => {
                 // TODO(cleanup) this duplicates some functionality of mir_binop_to_ast().
                 // Can we consolidate?
@@ -599,6 +656,39 @@ impl ConstraintContext {
         match operator {
             mir::UnOp::Not => val.not(),
             mir::UnOp::Neg => val.bvneg(),
+        }
+    }
+
+    fn mir_intrinsic_to_ast<'a>(
+        &self,
+        ctx: &'a z3::Context,
+        operator: NumericIntrinsic,
+        val: z3::Ast<'a>,
+        kind: PrimValKind)
+        -> z3::Ast<'a>
+    {
+        match operator {
+            NumericIntrinsic::Cttz => {
+                let mut bits = kind.num_bytes() * 8;
+                if bits > 128 {
+                    unimplemented!();
+                }
+                let num_bits = bits as u32;
+                let zero = z3::Ast::bv_from_u64(&ctx, 0, num_bits);
+                let mut r = z3::Ast::bv_from_u64(&ctx, 0, num_bits);
+                let mut x = val;
+                while bits > 1 {
+                    bits /= 2;
+                    let mask = (num::Wrapping(1u64) << bits) - num::Wrapping(1u64);
+                    let z3mask = z3::Ast::bv_from_u64(&ctx, mask.0, num_bits);
+                    let z3bits = z3::Ast::bv_from_u64(&ctx, bits as u64, num_bits);
+                    let ends_with_zeros = x.bvand(&z3mask)._eq(&zero);
+                    r = ends_with_zeros.ite(&r.bvadd(&z3bits), &r);
+                    x = ends_with_zeros.ite(&x.bvlshr(&z3bits), &x);
+                }
+                let one = z3::Ast::bv_from_u64(&ctx, 1, num_bits);
+                r.bvadd(&one.bvsub(&x.bvand(&one)))
+            },
         }
     }
 }
