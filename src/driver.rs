@@ -97,7 +97,7 @@ fn resource_limits_from_attributes(state: &CompileState) -> ::ResourceLimits {
             for item in items {
                 if let NestedMetaItemKind::MetaItem(ref inner) = item.node {
                     if let MetaItemKind::NameValue(ref value) = inner.node {
-                        match &inner.name().as_str()[..] {
+                        match &inner.ident.name.as_str()[..] {
                             "memory_size" => limits.memory_size = extract_int(value) as u64,
                             "step_limit" => limits.step_limit = extract_int(value) as u64,
                             "stack_limit" => limits.stack_limit = extract_int(value) as usize,
