@@ -15,6 +15,7 @@ use memory::{SByte};
 use value::{PrimVal, PrimValKind};
 use value::Value;
 use rustc_data_structures::indexed_vec::Idx;
+use regex::Regex;
 
 mod drop;
 mod intrinsic;
@@ -532,7 +533,11 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                                     Ok(s) => s,
                                     Err(e) => bug!("failed to get source for span {:?}: {:?}", span, e),
                                 };
-                                let label = format!("{}", source);
+                                // it would be more robust to use rustc's parser
+                                // TODO: avoid recompiling the regex
+                                let re = Regex::new(r"mksym\(&?(?:mut)?\s*(.*)\)").unwrap();
+                                let caps = re.captures(&source).unwrap();
+                                let label = format!("{}", &caps[1]);
                                 self.memory.write_fresh_var_group(ptr, len as u64, label)?;
                             }
                             _ => {
