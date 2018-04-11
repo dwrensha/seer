@@ -1,5 +1,6 @@
 use rustc::mir;
 use z3;
+use std::fmt;
 
 use memory::{AbstractVariable, SByte};
 use value::{PrimVal, PrimValKind};
@@ -45,11 +46,17 @@ pub struct ConstraintContext {
 }
 
 /// Holds relevant parts of the solution z3 found when solving a set of constraints.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct SatisfiedVarGroup {
     label: String,
     /// Variable assignments that satisfy the given constraints.
     assignments: Vec<u8>,
+}
+
+impl fmt::Debug for SatisfiedVarGroup {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}: {:?}", self.label, self.assignments)
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
