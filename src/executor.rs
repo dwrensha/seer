@@ -154,6 +154,7 @@ impl <'a, 'tcx: 'a> Executor<'a, 'tcx> {
                         let iter = ::std::iter::repeat(ecx).zip(branches.into_iter());
                         for (mut cx, finish_step) in iter {
                             let FinishStep {constraints, variant} = finish_step;
+                            let mut no_errors: bool = true;
                             for constraint in constraints {
                                 cx.memory.constraints.push_constraint(constraint);
                                 match variant {
@@ -169,10 +170,14 @@ impl <'a, 'tcx: 'a> Executor<'a, 'tcx> {
                                         if !self.report_error(&cx, e.clone()) {
                                             break 'main_loop;
                                         }
+                                        no_errors = false;
                                     }
                                 }
                             }
-                            self.push_eval_context(cx);
+                            if no_errors {
+                                // only continue along branches without errors
+                                self.push_eval_context(cx);
+                            }
                         }
                     }
                 }
