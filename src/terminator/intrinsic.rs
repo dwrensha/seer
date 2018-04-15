@@ -244,6 +244,19 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 self.write_primval(dest, result.0, dest_ty)?;
             }
 
+            "exact_div" => {
+                // added in https://github.com/rust-lang/rust/pull/49297
+
+                // TODO report undefined behavior in cases where
+                // `a % b != 0` or `b == 0` or `a = ty::min_value() && b == 1`
+
+                let ty = instance.substs.type_at(0);
+                let a = self.value_to_primval(arg_vals[0], ty)?;
+                let b = self.value_to_primval(arg_vals[1], ty)?;
+                let result = self.binary_op(mir::BinOp::Div, a, ty, b, ty)?;
+                self.write_primval(dest, result.0, dest_ty)?;
+            }
+
             "likely" |
             "unlikely" |
             "forget" => {}
