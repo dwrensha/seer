@@ -623,7 +623,10 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                                 (Value::ByValPair(data, _), false) => {
                                     self.write_value(ValTy { value: Value::ByVal(data), ty: dest_ty }, dest)?;
                                 },
-                                (Value::ByVal(_), _) => bug!("expected fat ptr"),
+                                (Value::ByVal(v), false) => {
+                                    self.write_value(ValTy { value: Value::ByVal(v), ty: dest_ty }, dest)?;
+                                }
+                                (Value::ByVal(_), true) => bug!("expected fat ptr"),
                             }
                         } else {
                             // First, try casting
@@ -711,7 +714,15 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
     fn type_is_fat_ptr(&self, ty: Ty<'tcx>) -> bool {
         match ty.sty {
             ty::TyRawPtr(ref tam) |
-            ty::TyRef(_, ref tam) => !self.type_is_sized(tam.ty),
+            ty::TyRef(_, ref tam) => {
+                if let ty::TyForeign(def_id) =  tam.ty.sty {
+                    if "Opaque" == self.tcx.item_name(def_id) {
+                        // TODO make this more picky. We want it to only match std::alloc::Opaque.
+                        return false;
+                    }
+                }
+                !self.type_is_sized(tam.ty)
+            }
             ty::TyAdt(def, _) if def.is_box() => !self.type_is_sized(ty.boxed_ty()),
             _ => false,
         }

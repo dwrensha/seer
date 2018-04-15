@@ -702,7 +702,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 return Ok(());
             }
 
-            "alloc::heap::::__rust_alloc" => {
+            "alloc::alloc::::__rust_alloc" => {
                 let usize = self.tcx.types.usize;
                 let size = self.value_to_primval(args[0], usize)?.to_u64()?;
                 let align = self.value_to_primval(args[1], usize)?.to_u64()?;
@@ -716,7 +716,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 return Ok(());
             }
 
-            "alloc::heap::::__rust_alloc_zeroed" => {
+            "alloc::alloc::::__rust_alloc_zeroed" => {
                 let usize = self.tcx.types.usize;
                 let size = self.value_to_primval(args[0], usize)?.to_u64()?;
                 let align = self.value_to_primval(args[1], usize)?.to_u64()?;
@@ -798,7 +798,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 return Ok(());
             }
 
-            "alloc::heap::::__rust_realloc" => {
+            "alloc::alloc::::__rust_realloc" => {
                 let (lval, block) = destination.expect("realloc() does not diverge");
                 let dest_ptr = self.force_allocation(lval)?.to_ptr()?;
 
@@ -809,17 +809,16 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
 
                 let usize = self.tcx.types.usize;
                 let _old_size = self.value_to_primval(args[1], usize)?.to_u64()?;
-                let _old_align = self.value_to_primval(args[2], usize)?.to_u64()?;
+                let align = self.value_to_primval(args[2], usize)?.to_u64()?;
                 let new_size = self.value_to_primval(args[3], usize)?.to_u64()?;
-                let new_align = self.value_to_primval(args[4], usize)?.to_u64()?;
 
-                let new_ptr = self.memory.reallocate(ptr, new_size, new_align)?;
+                let new_ptr = self.memory.reallocate(ptr, new_size, align)?;
                 self.memory.write_ptr(dest_ptr, new_ptr)?;
                 self.goto_block(block);
                 return Ok(());
             }
 
-            "alloc::heap::::__rust_dealloc" => {
+            "alloc::alloc::::__rust_dealloc" => {
                 let (_lval, block) = destination.expect("dealloc() does not diverge");
 
                 let ptr = match args[0] {
