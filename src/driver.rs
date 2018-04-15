@@ -68,7 +68,7 @@ fn after_analysis_run_main<'a, 'tcx>(config: ::ExecutionConfig)
         let tcx = state.tcx.unwrap();
         let limits = resource_limits_from_attributes(state);
 
-        if let Some((entry_node_id, _)) = *state.session.entry_fn.borrow() {
+        if let Some((entry_node_id, _, _)) = *state.session.entry_fn.borrow() {
             let entry_def_id = tcx.hir.local_def_id(entry_node_id);
 
             let mut executor = ::executor::Executor::new(tcx, entry_def_id, limits, config.clone());
