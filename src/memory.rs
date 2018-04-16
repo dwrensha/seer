@@ -306,7 +306,7 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
         } else {
             let static_ = tcx
                 .interpret_interner
-                .get_corresponding_static_def_id(ptr.alloc_id);
+                .get_static(ptr.alloc_id);
 
             if let Some(_def_id) = static_ {
                 unimplemented!()
