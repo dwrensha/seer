@@ -9,6 +9,7 @@ use value::{PrimVal, PrimValKind};
 #[derive(Debug, Clone, Copy)]
 pub enum NumericIntrinsic {
     Ctpop,
+    Ctlz,
     Cttz,
 }
 
@@ -678,6 +679,19 @@ impl ConstraintContext {
                 (0..num_bits)
                     .map(|idx| z3::Ast::bv_from_u64(&ctx, idx as u64, num_bits))
                     .fold(zero, |r, idx| r.bvadd(&val.bvlshr(&idx).bvand(&one)))
+            },
+            NumericIntrinsic::Ctlz => {
+                // from http://aggregate.org/MAGIC/#Leading%20Zero%20Count
+                // ctlz(x) = bits - ones(z) where
+                // z = x | x >> 1 | x >> 2 | x >> 3 | ... | x >> num_bits - 1
+                let num_bits = kind.num_bytes() as u32 * 8;
+                let zero = z3::Ast::bv_from_u64(&ctx, 0, num_bits);
+                let z = (0..num_bits)
+                    .map(|idx| z3::Ast::bv_from_u64(&ctx, idx as u64, num_bits))
+                    .fold(zero, |x, idx| x.bvor(&val.bvlshr(&idx)));
+
+                let ones = self.mir_intrinsic_to_ast(ctx, NumericIntrinsic::Ctpop, z, kind);
+                z3::Ast::bv_from_u64(&ctx, num_bits as u64, num_bits).bvsub(&ones)
             },
             NumericIntrinsic::Cttz => {
                 let mut bits = kind.num_bytes() * 8;
