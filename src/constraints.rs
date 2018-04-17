@@ -1,8 +1,6 @@
 use rustc::mir;
 use z3;
 
-use std::num;
-
 use memory::{AbstractVariable, SByte};
 use value::{PrimVal, PrimValKind};
 
@@ -694,25 +692,12 @@ impl ConstraintContext {
                 z3::Ast::bv_from_u64(&ctx, num_bits as u64, num_bits).bvsub(&ones)
             },
             NumericIntrinsic::Cttz => {
-                let mut bits = kind.num_bytes() * 8;
-                if bits > 128 {
-                    unimplemented!();
-                }
-                let num_bits = bits as u32;
-                let zero = z3::Ast::bv_from_u64(&ctx, 0, num_bits);
-                let mut r = z3::Ast::bv_from_u64(&ctx, 0, num_bits);
-                let mut x = val;
-                while bits > 1 {
-                    bits /= 2;
-                    let mask = (num::Wrapping(1u64) << bits) - num::Wrapping(1u64);
-                    let z3mask = z3::Ast::bv_from_u64(&ctx, mask.0, num_bits);
-                    let z3bits = z3::Ast::bv_from_u64(&ctx, bits as u64, num_bits);
-                    let ends_with_zeros = x.bvand(&z3mask)._eq(&zero);
-                    r = ends_with_zeros.ite(&r.bvadd(&z3bits), &r);
-                    x = ends_with_zeros.ite(&x.bvlshr(&z3bits), &x);
-                }
+                // from http://aggregate.org/MAGIC/#Trailing%20Zero%20Count
+                // cttz(x) = ones((x & (−x)) − 1)
+                let num_bits = kind.num_bytes() as u32 * 8;
                 let one = z3::Ast::bv_from_u64(&ctx, 1, num_bits);
-                r.bvadd(&one.bvsub(&x.bvand(&one)))
+                let z = val.bvand(&val.bvneg()).bvsub(&one);
+                self.mir_intrinsic_to_ast(ctx, NumericIntrinsic::Ctpop, z, kind)
             },
         }
     }
