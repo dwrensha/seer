@@ -634,6 +634,12 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                         }
                         Ok(PrimVal::Abstract(sbytes))
                     }
+                    "ctpop" => {
+                        Ok(self.memory.constraints.add_intrinsic_constraint(
+                            ::constraints::NumericIntrinsic::Ctpop,
+                            val,
+                            kind))
+                    }
                     "cttz" => {
                         Ok(self.memory.constraints.add_intrinsic_constraint(
                             ::constraints::NumericIntrinsic::Cttz,

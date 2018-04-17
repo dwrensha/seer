@@ -8,6 +8,7 @@ use value::{PrimVal, PrimValKind};
 
 #[derive(Debug, Clone, Copy)]
 pub enum NumericIntrinsic {
+    Ctpop,
     Cttz,
 }
 
@@ -668,6 +669,16 @@ impl ConstraintContext {
         -> z3::Ast<'a>
     {
         match operator {
+            NumericIntrinsic::Ctpop => {
+                // no magic in here, just mask each bit and sum them
+                // this avoids branching (ite)
+                let num_bits = kind.num_bytes() as u32 * 8;
+                let zero = z3::Ast::bv_from_u64(&ctx, 0, num_bits);
+                let one = z3::Ast::bv_from_u64(&ctx, 1, num_bits);
+                (0..num_bits)
+                    .map(|idx| z3::Ast::bv_from_u64(&ctx, idx as u64, num_bits))
+                    .fold(zero, |r, idx| r.bvadd(&val.bvlshr(&idx).bvand(&one)))
+            },
             NumericIntrinsic::Cttz => {
                 let mut bits = kind.num_bytes() * 8;
                 if bits > 128 {
