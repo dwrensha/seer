@@ -1,13 +1,13 @@
 use rustc::mir;
 use z3;
 
-use std::num;
-
 use memory::{AbstractVariable, SByte};
 use value::{PrimVal, PrimValKind};
 
 #[derive(Debug, Clone, Copy)]
 pub enum NumericIntrinsic {
+    Ctpop,
+    Ctlz,
     Cttz,
 }
 
@@ -668,26 +668,36 @@ impl ConstraintContext {
         -> z3::Ast<'a>
     {
         match operator {
-            NumericIntrinsic::Cttz => {
-                let mut bits = kind.num_bytes() * 8;
-                if bits > 128 {
-                    unimplemented!();
-                }
-                let num_bits = bits as u32;
+            NumericIntrinsic::Ctpop => {
+                // no magic in here, just mask each bit and sum them
+                // this avoids branching (ite)
+                let num_bits = kind.num_bytes() as u32 * 8;
                 let zero = z3::Ast::bv_from_u64(&ctx, 0, num_bits);
-                let mut r = z3::Ast::bv_from_u64(&ctx, 0, num_bits);
-                let mut x = val;
-                while bits > 1 {
-                    bits /= 2;
-                    let mask = (num::Wrapping(1u64) << bits) - num::Wrapping(1u64);
-                    let z3mask = z3::Ast::bv_from_u64(&ctx, mask.0, num_bits);
-                    let z3bits = z3::Ast::bv_from_u64(&ctx, bits as u64, num_bits);
-                    let ends_with_zeros = x.bvand(&z3mask)._eq(&zero);
-                    r = ends_with_zeros.ite(&r.bvadd(&z3bits), &r);
-                    x = ends_with_zeros.ite(&x.bvlshr(&z3bits), &x);
-                }
                 let one = z3::Ast::bv_from_u64(&ctx, 1, num_bits);
-                r.bvadd(&one.bvsub(&x.bvand(&one)))
+                (0..num_bits)
+                    .map(|idx| z3::Ast::bv_from_u64(&ctx, idx as u64, num_bits))
+                    .fold(zero, |r, idx| r.bvadd(&val.bvlshr(&idx).bvand(&one)))
+            },
+            NumericIntrinsic::Ctlz => {
+                // from http://aggregate.org/MAGIC/#Leading%20Zero%20Count
+                // ctlz(x) = bits - ones(z) where
+                // z = x | x >> 1 | x >> 2 | x >> 3 | ... | x >> num_bits - 1
+                let num_bits = kind.num_bytes() as u32 * 8;
+                let zero = z3::Ast::bv_from_u64(&ctx, 0, num_bits);
+                let z = (0..num_bits)
+                    .map(|idx| z3::Ast::bv_from_u64(&ctx, idx as u64, num_bits))
+                    .fold(zero, |x, idx| x.bvor(&val.bvlshr(&idx)));
+
+                let ones = self.mir_intrinsic_to_ast(ctx, NumericIntrinsic::Ctpop, z, kind);
+                z3::Ast::bv_from_u64(&ctx, num_bits as u64, num_bits).bvsub(&ones)
+            },
+            NumericIntrinsic::Cttz => {
+                // from http://aggregate.org/MAGIC/#Trailing%20Zero%20Count
+                // cttz(x) = ones((x & (−x)) − 1)
+                let num_bits = kind.num_bytes() as u32 * 8;
+                let one = z3::Ast::bv_from_u64(&ctx, 1, num_bits);
+                let z = val.bvand(&val.bvneg()).bvsub(&one);
+                self.mir_intrinsic_to_ast(ctx, NumericIntrinsic::Ctpop, z, kind)
             },
         }
     }

@@ -174,3 +174,19 @@ fn symbolic_trailing_zeros() {
         vec![128]);
 
 }
+
+#[test]
+fn symbolic_leading_zeros() {
+    expect_single_panic(
+        "tests/symbolic/leading_zeros.rs",
+        vec![1]);
+
+}
+
+#[test]
+fn symbolic_count_ones() {
+    expect_single_panic(
+        "tests/symbolic/count_ones.rs",
+        vec![255]);
+
+}
