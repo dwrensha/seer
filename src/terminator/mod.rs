@@ -519,7 +519,69 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         match instance.def {
             ty::InstanceDef::Item(def_id) => {
                 match self.tcx.item_path_str(def_id).as_str() {
+                    "seer_helper::test" => {
+                        use std::mem;
+                        use value::Value;
+                        use value::PrimVal;
+                        use memory::MemoryPointer;
+                        use memory::SByte;
+                        use std::str;
+                        println!("seer_helper::test intercepted 1");
+                        let args_res: EvalResult<Vec<Value>> = arg_operands.iter()
+                            .map(|arg| self.eval_operand(arg))
+                            .collect();
+                        let args = args_res?;
+
+                        // String args[0]: ByRef(MemoryPointer { alloc_id: AllocId(45), offset: Concrete(0) })
+                        // &str args[0]: ByValPair(Ptr(MemoryPointer { alloc_id: AllocId(2), offset: Concrete(0) }), Bytes(3))
+                        println!("args[0]: {:?}", args[0]);
+                        println!("sig: {:?}", sig);
+
+                        let t = sig.inputs_and_output.get(0).unwrap();
+                        //str
+                        //println!("arg[0].0: {:?}\narg[0].1: {:?}", self.get_field_ty(t, 0), self.get_field_ty(t, 1));
+
+                        //fn field_types(ecx: &EvalContext, t: ty::Ty) -> EvalResult<'tcx, ()>{
+                        //    let n = ecx.get_field_count(t)?;
+                        //    for i in 0 .. n {
+                        //        let t1 = ecx.get_field_ty(t, i)?;
+                        //        println!("{:?}", t1);
+                        //        field_types(ecx, t1);
+                        //    }
+                        //};
+                        //String 
+                        //println!("t.0: {:?}", self.get_field_ty(t, 0));
+                        ////t.0: Ok(TyAndPacked { ty: std::vec::Vec<u8>, packed: false })
+                        //let t1 = self.get_field_ty(t, 0)?.ty;
+                        //println!("t1.0: {:?}", self.get_field_ty(t1, 0));
+                        //field_types(self, t);
+
+                        if let Value::ByValPair(PrimVal::Ptr(mem_ptr), PrimVal::Bytes(len)) = args[0] {
+                            let concrete_bytes = &self.memory.get(mem_ptr.alloc_id)?.bytes;
+                            let bytes: Vec<u8>= concrete_bytes.iter().take(len as usize).map(|c| {
+                                match c {
+                                    &SByte::Concrete(b) => b,
+                                    _ => panic!("non-concrete byte"),
+                                }
+                            }).collect();
+                            let s = str::from_utf8(&bytes);
+                            println!("bytes: {:?}", bytes);
+                            println!("s: {:?}", s);
+                        }
+                        //if let Value::ByRef(mem_ptr) = args[0] {
+                        //    let concrete_bytes = &self.memory.get(mem_ptr.alloc_id)?.bytes;
+                        //    let bytes: Vec<u8>= concrete_bytes.iter().map(|c| {
+                        //        match c {
+                        //            &SByte::Concrete(b) => b,
+                        //            _ => panic!("non-concrete byte"),
+                        //        }
+                        //    }).collect();
+                        //    println!("{:?}", bytes);
+                        //}
+                        //let s1 = mem::transmute::<String>(s);
+                    }
                     "seer_helper::mksym" => {
+                        println!("{:?}\n{:?}", arg_operands[0], sig);
                         let (lval, block) = destination.expect("seer_helper::mksym() does not diverge");
                         let args_res: EvalResult<Vec<Value>> = arg_operands.iter()
                             .map(|arg| self.eval_operand(arg))
