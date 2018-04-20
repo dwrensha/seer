@@ -520,10 +520,10 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             ty::InstanceDef::Item(def_id) => {
                 match self.tcx.item_path_str(def_id).as_str() {
                     "seer_helper::test" => {
-                        use std::mem;
+                        //use std::mem;
                         use value::Value;
                         use value::PrimVal;
-                        use memory::MemoryPointer;
+                        //use memory::MemoryPointer;
                         use memory::SByte;
                         use std::str;
                         println!("seer_helper::test intercepted 1");
@@ -537,7 +537,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                         println!("args[0]: {:?}", args[0]);
                         println!("sig: {:?}", sig);
 
-                        let t = sig.inputs_and_output.get(0).unwrap();
+                        //let t = sig.inputs_and_output.get(0).unwrap();
                         //str
                         //println!("arg[0].0: {:?}\narg[0].1: {:?}", self.get_field_ty(t, 0), self.get_field_ty(t, 1));
 
