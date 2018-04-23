@@ -48,9 +48,9 @@ pub struct ConstraintContext {
 /// Holds relevant parts of the solution z3 found when solving a set of constraints.
 #[derive(Clone)]
 pub struct SatisfiedVarGroup {
-    label: String,
+    pub label: String,
     /// Variable assignments that satisfy the given constraints.
-    assignments: Vec<u8>,
+    pub assignments: Vec<u8>,
 }
 
 impl fmt::Debug for SatisfiedVarGroup {
