@@ -196,7 +196,8 @@ impl<'c, 'b, 'a, 'tcx> layout::HasTyCtxt<'tcx>
     }
 }
 
-impl<'a, 'tcx> LayoutOf<Ty<'tcx>> for &'a EvalContext<'a, 'tcx> {
+impl<'a, 'tcx> LayoutOf for &'a EvalContext<'a, 'tcx> {
+    type Ty = Ty<'tcx>;
     type TyLayout = EvalResult<'tcx, TyLayout<'tcx>>;
 
     fn layout_of(self, ty: Ty<'tcx>) -> Self::TyLayout {
@@ -205,8 +206,8 @@ impl<'a, 'tcx> LayoutOf<Ty<'tcx>> for &'a EvalContext<'a, 'tcx> {
     }
 }
 
-impl<'c, 'b, 'a, 'tcx> LayoutOf<Ty<'tcx>>
-    for &'c &'b mut EvalContext<'a, 'tcx> {
+impl<'c, 'b, 'a, 'tcx> LayoutOf for &'c &'b mut EvalContext<'a, 'tcx> {
+    type Ty = Ty<'tcx>;
     type TyLayout = EvalResult<'tcx, TyLayout<'tcx>>;
 
     #[inline]

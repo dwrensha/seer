@@ -138,7 +138,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         substs: &'tcx Substs<'tcx>,
     ) -> ty::Instance<'tcx> {
         if let Some(trait_id) = self.tcx.trait_of_item(def_id) {
-            let trait_ref = ty::Binder(ty::TraitRef::new(trait_id, substs));
+            let trait_ref = ty::Binder::bind(ty::TraitRef::new(trait_id, substs));
             let vtable = self.fulfill_obligation(trait_ref);
             if let traits::VtableImpl(vtable_impl) = vtable {
                 let name = self.tcx.item_name(def_id);

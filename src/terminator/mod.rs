@@ -4,7 +4,7 @@ use rustc::ty::{self, TypeVariants, Ty};
 use rustc::ty::layout::HasDataLayout;
 use syntax::codemap::Span;
 use syntax::attr;
-use syntax::abi::Abi;
+use rustc_target::spec::abi::Abi;
 
 use constraints::Constraint;
 use error::{EvalError, EvalResult};
