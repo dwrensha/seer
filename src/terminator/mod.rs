@@ -846,7 +846,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         let attrs = self.tcx.get_attrs(def_id);
         let link_name = match attr::first_attr_value_str_by_name(&attrs, "link_name") {
             Some(name) => name.as_str(),
-            None => self.tcx.item_name(def_id),
+            None => self.tcx.item_name(def_id).as_str(),
         };
 
         let args_res: EvalResult<Vec<Value>> = args.iter()

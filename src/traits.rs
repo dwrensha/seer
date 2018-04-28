@@ -141,7 +141,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             let trait_ref = ty::Binder::bind(ty::TraitRef::new(trait_id, substs));
             let vtable = self.fulfill_obligation(trait_ref);
             if let traits::VtableImpl(vtable_impl) = vtable {
-                let name = self.tcx.item_name(def_id);
+                let name = self.tcx.item_name(def_id).as_str();
                 let assoc_const_opt = self.tcx.associated_items(vtable_impl.impl_def_id)
                     .find(|item| item.kind == ty::AssociatedKind::Const && item.name == name);
                 if let Some(assoc_const) = assoc_const_opt {

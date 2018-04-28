@@ -30,7 +30,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         let f64 = self.tcx.types.f64;
         let substs = instance.substs;
 
-        let intrinsic_name = &self.tcx.item_name(instance.def_id())[..];
+        let intrinsic_name = &self.tcx.item_name(instance.def_id()).as_str()[..];
         match intrinsic_name {
             "align_offset" => {
                 // TODO: more sophisticated analysis
