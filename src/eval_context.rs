@@ -321,7 +321,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             ::rustc::ty::ParamEnv::empty(), // XXX ?
             def_id,
             substs,
-        ).ok_or(EvalError::TypeckError.into()) // turn error prop into a panic to expose associated type in const issue
+        ).ok_or_else(|| EvalError::TypeckError.into()) // turn error prop into a panic to expose associated type in const issue
     }
 
     pub(super) fn type_is_sized(&self, ty: Ty<'tcx>) -> bool {
