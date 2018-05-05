@@ -176,6 +176,8 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                                 Err(EvalError::ArrayIndexOutOfBounds(span, len, index))
                             }
                             Overflow(op) => Err(EvalError::Overflow(op)),
+                            OverflowNeg => Err(EvalError::OverflowNeg),
+                            RemainderByZero => Err(EvalError::RemainderByZero),
                             _ => unimplemented!(),
                         }
                     }

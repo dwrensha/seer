@@ -32,6 +32,8 @@ pub enum EvalError<'tcx> {
     ArrayIndexOutOfBounds(Span, u64, u64),
     Intrinsic(String),
     Overflow(mir::BinOp),
+    OverflowNeg,
+    RemainderByZero,
     InvalidChar(u128),
     OutOfMemory {
         allocation_size: u64,
@@ -109,6 +111,8 @@ impl<'tcx> Error for EvalError<'tcx> {
             EvalError::Overflow(mir::BinOp::Shr) => "attempt to shift right with overflow",
             EvalError::Overflow(mir::BinOp::Shl) => "attempt to shift left with overflow",
             EvalError::Overflow(op) => panic!("cannot overflow {:?}", op),
+            EvalError::OverflowNeg => "attempt to negate with overflow",
+            EvalError::RemainderByZero => "attempt to calculate the remainder with a divisor of zero",
             EvalError::NoMirFor(..) =>
                 "mir not found",
             EvalError::InvalidChar(..) =>
@@ -221,6 +225,8 @@ pub enum StaticEvalError {
     ArrayIndexOutOfBounds(Span, u64, u64),
     Intrinsic(String),
     Overflow(mir::BinOp),
+    OverflowNeg,
+    RemainderByZero,
     InvalidChar(u128),
     OutOfMemory {
         allocation_size: u64,
@@ -291,6 +297,10 @@ impl <'tcx> From<EvalError<'tcx>> for StaticEvalError {
                 StaticEvalError::Intrinsic(s),
             EvalError::Overflow(op) =>
                 StaticEvalError::Overflow(op),
+            EvalError::OverflowNeg =>
+                StaticEvalError::OverflowNeg,
+            EvalError::RemainderByZero =>
+                StaticEvalError::RemainderByZero,
             EvalError::NoMirFor(ref s) =>
                 StaticEvalError::NoMirFor(s.clone()),
             EvalError::InvalidChar(c) =>
