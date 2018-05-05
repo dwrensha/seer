@@ -1,7 +1,9 @@
 use rustc::ty::{self, Ty};
 use syntax::ast::{IntTy, UintTy};
+use syntax::ast::FloatTy;
 
-use rustc_const_math::ConstFloat;
+use rustc_apfloat::Float;
+use rustc_apfloat::ieee::{Single, Double};
 use error::{EvalResult, EvalError};
 use eval_context::EvalContext;
 use memory::{MemoryPointer, SByte};
@@ -105,8 +107,10 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             TyInt(ty) => Ok(PrimVal::Bytes(self.int_to_int(v as i128, ty))),
             TyUint(ty) => Ok(PrimVal::Bytes(self.int_to_uint(v, ty))),
 
-            TyFloat(fty) if negative => Ok(PrimVal::Bytes(ConstFloat::from_i128(v as i128, fty).bits)),
-            TyFloat(fty) => Ok(PrimVal::Bytes(ConstFloat::from_u128(v, fty).bits)),
+            TyFloat(FloatTy::F32) if negative => Ok(PrimVal::Bytes(Single::from_i128(v as i128).value.to_bits())),
+            TyFloat(FloatTy::F64) if negative => Ok(PrimVal::Bytes(Double::from_i128(v as i128).value.to_bits())),
+            TyFloat(FloatTy::F32) => Ok(PrimVal::Bytes(Single::from_u128(v as u128).value.to_bits())),
+            TyFloat(FloatTy::F64) => Ok(PrimVal::Bytes(Double::from_u128(v as u128).value.to_bits())),
 
             TyChar if v as u8 as u128 == v => Ok(PrimVal::Bytes(v)),
             TyChar => return Err(EvalError::InvalidChar(v)),

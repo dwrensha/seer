@@ -1,8 +1,9 @@
 use rustc::mir;
-use rustc::ty::{Ty};
-use rustc_const_math::ConstFloat;
-use syntax::ast::FloatTy;
+use rustc::ty::{self, Ty};
+use rustc_apfloat::ieee::{Single, Double};
+use rustc_apfloat::Float;
 use std::cmp::Ordering;
+use syntax::ast::FloatTy;
 
 use error::{EvalError, EvalResult};
 use eval_context::{EvalContext, ValTy};
@@ -247,35 +248,36 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             return Err(EvalError::Unimplemented(msg));
         }
 
-        let float_op = |op, l, r, ty| {
-            let l = ConstFloat {
-                bits: l,
-                ty,
-            };
-            let r = ConstFloat {
-                bits: r,
-                ty,
-            };
-            match op {
-                Eq => PrimVal::from_bool(l.try_cmp(r).unwrap() == Ordering::Equal),
-                Ne => PrimVal::from_bool(l.try_cmp(r).unwrap() != Ordering::Equal),
-                Lt => PrimVal::from_bool(l.try_cmp(r).unwrap() == Ordering::Less),
-                Le => PrimVal::from_bool(l.try_cmp(r).unwrap() != Ordering::Greater),
-                Gt => PrimVal::from_bool(l.try_cmp(r).unwrap() == Ordering::Greater),
-                Ge => PrimVal::from_bool(l.try_cmp(r).unwrap() != Ordering::Less),
-                Add => PrimVal::Bytes((l + r).unwrap().bits),
-                Sub => PrimVal::Bytes((l - r).unwrap().bits),
-                Mul => PrimVal::Bytes((l * r).unwrap().bits),
-                Div => PrimVal::Bytes((l / r).unwrap().bits),
-                Rem => PrimVal::Bytes((l % r).unwrap().bits),
-                _ => bug!("invalid float op: `{:?}`", op),
+        if let ty::TyFloat(fty) = left_ty.sty {
+            macro_rules! float_math {
+                ($ty:path) => {{
+                    let l = <$ty>::from_bits(l);
+                    let r = <$ty>::from_bits(r);
+                    let val = match bin_op {
+                        Eq => PrimVal::from_bool(l.partial_cmp(&r).unwrap_or(Ordering::Greater) == Ordering::Equal),
+                        Ne => PrimVal::from_bool(l.partial_cmp(&r).unwrap_or(Ordering::Greater) != Ordering::Equal),
+                        Lt => PrimVal::from_bool(l.partial_cmp(&r).unwrap_or(Ordering::Greater) == Ordering::Less),
+                        Le => PrimVal::from_bool(l.partial_cmp(&r).unwrap_or(Ordering::Greater) != Ordering::Greater),
+                        Gt => PrimVal::from_bool(l.partial_cmp(&r).unwrap_or(Ordering::Greater) == Ordering::Greater),
+                        Ge => PrimVal::from_bool(l.partial_cmp(&r).unwrap_or(Ordering::Greater) != Ordering::Less),
+                        Add => PrimVal::Bytes((l + r).value.to_bits()),
+                        Sub => PrimVal::Bytes((l - r).value.to_bits()),
+                        Mul => PrimVal::Bytes((l * r).value.to_bits()),
+                        Div => PrimVal::Bytes((l / r).value.to_bits()),
+                        Rem => PrimVal::Bytes((l % r).value.to_bits()),
+                        _ => bug!("invalid float op: `{:?}`", bin_op),
+                    };
+                    return Ok((val, PrimVal::from_bool(false)))
+                }};
             }
-        };
+            match fty {
+                FloatTy::F32 => float_math!(Single),
+                FloatTy::F64 => float_math!(Double),
+            }
+        }
 
+        // only ints left
         let val = match (bin_op, left_kind) {
-            (_, F32) => float_op(bin_op, l, r, FloatTy::F32),
-            (_, F64) => float_op(bin_op, l, r, FloatTy::F64),
-
             (Eq, _) => PrimVal::from_bool(l == r),
             (Ne, _) => PrimVal::from_bool(l != r),
             (Lt, k) if k.is_signed_int() => PrimVal::from_bool((l as i128) < (r as i128)),

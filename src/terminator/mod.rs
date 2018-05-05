@@ -163,8 +163,9 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                         self.goto_block(target);
                         Ok(None)
                     } else {
+                        use rustc::mir::interpret::EvalErrorKind::*;
                         match *msg {
-                            mir::AssertMessage::BoundsCheck { ref len, ref index } => {
+                            BoundsCheck { ref len, ref index } => {
                                 let span = terminator.source_info.span;
                                 let len = self.eval_operand_to_primval(len)
                                     .expect("can't eval len")
@@ -173,11 +174,9 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                                     .expect("can't eval index")
                                     .to_u64()?;
                                 Err(EvalError::ArrayIndexOutOfBounds(span, len, index))
-                            },
-                            mir::AssertMessage::Math(ref err) =>
-                                Err(EvalError::Math(terminator.source_info.span, err.clone())),
-                            mir::AssertMessage::GeneratorResumedAfterReturn => unimplemented!(),
-                            mir::AssertMessage::GeneratorResumedAfterPanic => unimplemented!(),
+                            }
+                            Overflow(_op) => Err(EvalError::OverflowingMath),
+                            _ => unimplemented!(),
                         }
                     }
                 } else {
@@ -204,8 +203,9 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     }
 
                     if self.memory.constraints.is_feasible_with(&fail_constraints[..]) {
+                        use rustc::mir::interpret::EvalErrorKind::*;
                         let e = match *msg {
-                            mir::AssertMessage::BoundsCheck { ref len, ref index } => {
+                            BoundsCheck { ref len, ref index } => {
                                 let span = terminator.source_info.span;
                                 let len = self.eval_operand_to_primval(len)
                                     .expect("can't eval len")
@@ -215,10 +215,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                                     .to_u64()?;
                                 EvalError::ArrayIndexOutOfBounds(span, len, index)
                             },
-                            mir::AssertMessage::Math(ref err) =>
-                                EvalError::Math(terminator.source_info.span, err.clone()),
-                            mir::AssertMessage::GeneratorResumedAfterReturn => unimplemented!(),
-                            mir::AssertMessage::GeneratorResumedAfterPanic => unimplemented!(),
+                            _ => unimplemented!(),
                         };
 
                         finish_steps.push(

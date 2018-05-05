@@ -11,5 +11,5 @@
 #![allow(exceeding_bitshifts)]
 
 fn main() {
-    let _n = 1i64 >> 64; //~ Overflow(Shr)
+    let _n = 1i64 >> 64; //~ overflowing math
 }
