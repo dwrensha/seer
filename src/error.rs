@@ -31,7 +31,7 @@ pub enum EvalError<'tcx> {
     ExecuteMemory,
     ArrayIndexOutOfBounds(Span, u64, u64),
     Intrinsic(String),
-    OverflowingMath,
+    Overflow(mir::BinOp),
     InvalidChar(u128),
     OutOfMemory {
         allocation_size: u64,
@@ -101,8 +101,14 @@ impl<'tcx> Error for EvalError<'tcx> {
                 "array index out of bounds",
             EvalError::Intrinsic(..) =>
                 "intrinsic failed",
-            EvalError::OverflowingMath =>
-                "attempted to do overflowing math",
+            EvalError::Overflow(mir::BinOp::Add) => "attempt to add with overflow",
+            EvalError::Overflow(mir::BinOp::Sub) => "attempt to subtract with overflow",
+            EvalError::Overflow(mir::BinOp::Mul) => "attempt to multiply with overflow",
+            EvalError::Overflow(mir::BinOp::Div) => "attempt to divide with overflow",
+            EvalError::Overflow(mir::BinOp::Rem) => "attempt to calculate the remainder with overflow",
+            EvalError::Overflow(mir::BinOp::Shr) => "attempt to shift right with overflow",
+            EvalError::Overflow(mir::BinOp::Shl) => "attempt to shift left with overflow",
+            EvalError::Overflow(op) => panic!("cannot overflow {:?}", op),
             EvalError::NoMirFor(..) =>
                 "mir not found",
             EvalError::InvalidChar(..) =>
@@ -214,7 +220,7 @@ pub enum StaticEvalError {
     ExecuteMemory,
     ArrayIndexOutOfBounds(Span, u64, u64),
     Intrinsic(String),
-    OverflowingMath,
+    Overflow(mir::BinOp),
     InvalidChar(u128),
     OutOfMemory {
         allocation_size: u64,
@@ -283,8 +289,8 @@ impl <'tcx> From<EvalError<'tcx>> for StaticEvalError {
                 StaticEvalError::ArrayIndexOutOfBounds(a, b, c),
             EvalError::Intrinsic(s) =>
                 StaticEvalError::Intrinsic(s),
-            EvalError::OverflowingMath =>
-                StaticEvalError::OverflowingMath,
+            EvalError::Overflow(op) =>
+                StaticEvalError::Overflow(op),
             EvalError::NoMirFor(ref s) =>
                 StaticEvalError::NoMirFor(s.clone()),
             EvalError::InvalidChar(c) =>

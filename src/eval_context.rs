@@ -790,7 +790,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             }
             Ok(ptr)
         } else {
-            Err(EvalError::OverflowingMath)
+            Err(EvalError::Overflow(mir::BinOp::Mul))
         }
     }
 

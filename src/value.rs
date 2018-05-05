@@ -1,4 +1,5 @@
 use std::mem::transmute;
+use rustc::mir;
 use rustc::ty::layout::TargetDataLayout;
 
 use error::{EvalError, EvalResult};
@@ -301,7 +302,7 @@ pub fn overflowing_offset<'tcx>(val: u64, i: u64, layout: &TargetDataLayout) -> 
 pub fn signed_offset<'tcx>(val: u64, i: i64, layout: &TargetDataLayout) -> EvalResult<'tcx, u64> {
     let (res, over) = overflowing_signed_offset(val, i as i128, layout);
     if over {
-        Err(EvalError::OverflowingMath)
+        Err(EvalError::Overflow(mir::BinOp::Add))
     } else {
         Ok(res)
     }
@@ -310,7 +311,7 @@ pub fn signed_offset<'tcx>(val: u64, i: i64, layout: &TargetDataLayout) -> EvalR
 pub fn offset<'tcx>(val: u64, i: u64, layout: &TargetDataLayout) -> EvalResult<'tcx, u64> {
     let (res, over) = overflowing_offset(val, i, layout);
     if over {
-        Err(EvalError::OverflowingMath)
+        Err(EvalError::Overflow(mir::BinOp::Add))
     } else {
         Ok(res)
     }

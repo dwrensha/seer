@@ -175,7 +175,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                                     .to_u64()?;
                                 Err(EvalError::ArrayIndexOutOfBounds(span, len, index))
                             }
-                            Overflow(_op) => Err(EvalError::OverflowingMath),
+                            Overflow(op) => Err(EvalError::Overflow(op)),
                             _ => unimplemented!(),
                         }
                     }
