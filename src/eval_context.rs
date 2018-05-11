@@ -714,15 +714,15 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
 
     fn type_is_fat_ptr(&self, ty: Ty<'tcx>) -> bool {
         match ty.sty {
-            ty::TyRawPtr(ref tam) |
-            ty::TyRef(_, ref tam) => {
-                if let ty::TyForeign(def_id) =  tam.ty.sty {
+            ty::TyRawPtr(ty::TypeAndMut {ty, .. }) |
+            ty::TyRef(_, ty, _) => {
+                if let ty::TyForeign(def_id) =  ty.sty {
                     if "Opaque" == self.tcx.item_name(def_id) {
                         // TODO make this more picky. We want it to only match std::alloc::Opaque.
                         return false;
                     }
                 }
-                !self.type_is_sized(tam.ty)
+                !self.type_is_sized(ty)
             }
             ty::TyAdt(def, _) if def.is_box() => !self.type_is_sized(ty.boxed_ty()),
             _ => false,
@@ -1177,8 +1177,8 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
 
             ty::TyFnPtr(_) => PrimValKind::FnPtr,
 
-            ty::TyRef(_, ref tam) |
-            ty::TyRawPtr(ref tam) if self.type_is_sized(tam.ty) => PrimValKind::Ptr,
+            ty::TyRawPtr(ty::TypeAndMut { ty, .. }) |
+            ty::TyRef(_, ty, _) if self.type_is_sized(ty) => PrimValKind::Ptr,
 
             ty::TyAdt(ref def, _) if def.is_box() => PrimValKind::Ptr,
 
@@ -1320,8 +1320,8 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             ty::TyFloat(FloatTy::F64) => PrimVal::from_f64(self.memory.read_f64(ptr)?),
 
             ty::TyFnPtr(_) => self.memory.read_ptr(ptr)?,
-            ty::TyRef(_, ref tam) |
-            ty::TyRawPtr(ref tam) => return self.read_ptr(ptr, tam.ty).map(Some),
+            ty::TyRef(_, ty, _) |
+            ty::TyRawPtr(ty::TypeAndMut {ty, ..}) => return self.read_ptr(ptr, ty).map(Some),
 
             ty::TyAdt(def, _) => {
                 if def.is_box() {
@@ -1411,9 +1411,10 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         dest_ty: Ty<'tcx>,
     ) -> EvalResult<'tcx> {
         match (&src_ty.sty, &dest_ty.sty) {
-            (&ty::TyRef(_, ref s), &ty::TyRef(_, ref d)) |
-            (&ty::TyRef(_, ref s), &ty::TyRawPtr(ref d)) |
-            (&ty::TyRawPtr(ref s), &ty::TyRawPtr(ref d)) => self.unsize_into_ptr(src, src_ty, dest, dest_ty, s.ty, d.ty),
+            (&ty::TyRef(_, s, _), &ty::TyRef(_, d, _)) |
+            (&ty::TyRef(_, s, _), &ty::TyRawPtr(ty::TypeAndMut {ty: d, ..})) |
+            (&ty::TyRawPtr(ty::TypeAndMut {ty: s, ..}), &ty::TyRawPtr(ty::TypeAndMut {ty: d, ..})) =>
+                self.unsize_into_ptr(src, src_ty, dest, dest_ty, s, d),
             (&ty::TyAdt(def_a, substs_a), &ty::TyAdt(def_b, substs_b)) => {
                 if def_a.is_box() || def_b.is_box() {
                     if !def_a.is_box() || !def_b.is_box() {

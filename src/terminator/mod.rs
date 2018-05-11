@@ -259,7 +259,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 // mutability of raw pointers.
                 // TODO: Should not be allowed when fat pointers are involved.
                 (&TypeVariants::TyRawPtr(_), &TypeVariants::TyRawPtr(_)) => true,
-                (&TypeVariants::TyRef(_, _), &TypeVariants::TyRef(_, _)) =>
+                (&TypeVariants::TyRef(_, _, _), &TypeVariants::TyRef(_, _, _)) =>
                     ty.is_mutable_pointer() == real_ty.is_mutable_pointer(),
                 // rule out everything else
                 _ => false
