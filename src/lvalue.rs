@@ -1,6 +1,6 @@
 use rustc::mir;
 use rustc::ty::layout::{HasDataLayout, TyLayout};
-use rustc::ty::{self, Ty};
+use rustc::ty::{self, Ty, TyCtxt};
 use rustc_data_structures::indexed_vec::Idx;
 
 use error::{EvalError, EvalResult};
@@ -86,9 +86,9 @@ impl<'tcx> Lvalue<'tcx> {
         ptr.to_ptr()
     }
 
-    pub(super) fn elem_ty_and_len(self, ty: Ty<'tcx>) -> (Ty<'tcx>, u64) {
+    pub(super) fn elem_ty_and_len(self, ty: Ty<'tcx>, tcx: TyCtxt<'_, 'tcx, '_>) -> (Ty<'tcx>, u64) {
         match ty.sty {
-            ty::TyArray(elem, n) => (elem, n.val.unwrap_u64()),
+            ty::TyArray(elem, n) => (elem, n.unwrap_usize(tcx)),
 
             ty::TySlice(elem) => {
                 match self {
@@ -333,7 +333,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         let base = self.force_allocation(base)?;
         let (base_ptr, _) = base.to_ptr_and_extra();
 
-        let (elem_ty, len) = base.elem_ty_and_len(outer_ty);
+        let (elem_ty, len) = base.elem_ty_and_len(outer_ty, self.tcx);
         let elem_size = self.type_size(elem_ty)?.expect(
             "slice element must be sized",
         );
@@ -440,7 +440,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 let base = self.force_allocation(base)?;
                 let (base_ptr, _) = base.to_ptr_and_extra();
 
-                let (elem_ty, n) = base.elem_ty_and_len(base_ty);
+                let (elem_ty, n) = base.elem_ty_and_len(base_ty, self.tcx);
                 let elem_size = self.type_size(elem_ty)?.expect(
                     "sequence element must be sized",
                 );
@@ -461,7 +461,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 let base = self.force_allocation(base)?;
                 let (base_ptr, _) = base.to_ptr_and_extra();
 
-                let (elem_ty, n) = base.elem_ty_and_len(base_ty);
+                let (elem_ty, n) = base.elem_ty_and_len(base_ty, self.tcx);
                 let elem_size = self.type_size(elem_ty)?.expect(
                     "slice element must be sized",
                 );

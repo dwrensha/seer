@@ -301,13 +301,13 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 self.globals.get(&cid).expect("static/const not cached").value
             }
 
-            ConstVal::Value(mir::interpret::Value::ByRef(..)) => {
+            ConstVal::Value(mir::interpret::ConstValue::ByRef(..)) => {
                 unimplemented!()
             }
-            ConstVal::Value(mir::interpret::Value::ByVal(prim_val)) => {
+            ConstVal::Value(mir::interpret::ConstValue::ByVal(prim_val)) => {
                 Value::ByVal(self.rustc_primval_to_primval(prim_val)?)
             }
-            ConstVal::Value(mir::interpret::Value::ByValPair(p1, p2)) => {
+            ConstVal::Value(mir::interpret::ConstValue::ByValPair(p1, p2)) => {
                 Value::ByValPair(self.rustc_primval_to_primval(p1)?,
                                  self.rustc_primval_to_primval(p2)?)
             }
@@ -539,7 +539,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
 
             Repeat(ref operand, _) => {
                 let (elem_ty, length) = match dest_ty.sty {
-                    ty::TyArray(elem_ty, n) => (elem_ty, n.val.unwrap_u64()),
+                    ty::TyArray(elem_ty, n) => (elem_ty, n.unwrap_usize(self.tcx)),
                     _ => bug!("tried to assign array-repeat to non-array type {:?}", dest_ty),
                 };
                 self.inc_step_counter_and_check_limit(length)?;
@@ -559,7 +559,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             Len(ref lvalue) => {
                 let src = self.eval_lvalue(lvalue)?;
                 let ty = self.lvalue_ty(lvalue);
-                let (_, len) = src.elem_ty_and_len(ty);
+                let (_, len) = src.elem_ty_and_len(ty, self.tcx);
                 self.write_primval(dest, PrimVal::from_u128(len as u128), dest_ty)?;
             }
 
@@ -1381,7 +1381,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         match (&src_pointee_ty.sty, &dest_pointee_ty.sty) {
             (&ty::TyArray(_, length), &ty::TySlice(_)) => {
                 let ptr = src.read_ptr(&self.memory)?;
-                let len = PrimVal::from_u128(length.val.to_raw_bits().unwrap());
+                let len = PrimVal::from_u128(length.assert_usize(self.tcx).unwrap() as u128);
                 self.write_value(ValTy { value: Value::ByValPair(ptr, len), ty: dest_ty }, dest)
             }
             (&ty::TyDynamic(..), &ty::TyDynamic(..)) => {
