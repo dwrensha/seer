@@ -1,9 +1,11 @@
 use rustc::mir;
+use rustc::ty::Ty;
 use z3;
 use std::fmt;
 
 use memory::{AbstractVariable, SByte};
 use value::{PrimVal, PrimValKind};
+use format_executor::FormatExecutor;
 
 #[derive(Debug, Clone, Copy)]
 enum VarType {
@@ -28,20 +30,21 @@ impl VarType {
 
 /// A labeled group of variables that should be displayed together.
 #[derive(Clone, Debug)]
-struct VarGroup {
+struct VarGroup<'tcx> {
     label: String,
     /// Each entry represents a variable as an ID and a type.
     variables: Vec<(u32, VarType)>,
+    ty: Option<Ty<'tcx>>,
 }
 
 #[derive(Clone, Debug)]
-pub struct ConstraintContext {
+pub struct ConstraintContext<'tcx> {
     next_id: u32,
     /// Each entry represents a variable as an ID and a type. These are used
     /// for intermediate results in constraints and are not displayed.
     variables_inner: Vec<(u32, VarType)>,
     /// The group at index 0 is the stdin group
-    var_groups: Vec<VarGroup>,
+    var_groups: Vec<VarGroup<'tcx>>,
     constraints: Vec<Constraint>,
 }
 
@@ -51,11 +54,19 @@ pub struct SatisfiedVarGroup {
     pub label: String,
     /// Variable assignments that satisfy the given constraints.
     pub assignments: Vec<u8>,
+    pub assignments_str: Option<String>,
 }
 
 impl fmt::Debug for SatisfiedVarGroup {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}: {:?}", self.label, self.assignments)
+        match self.assignments_str {
+            Some(ref s) => {
+                write!(f, "{}: {:?}", self.label, s)
+            }
+            None => {
+                write!(f, "{}: {:?}", self.label, self.assignments)
+            }
+        }
     }
 }
 
@@ -135,7 +146,7 @@ impl Constraint {
     }
 }
 
-impl ConstraintContext {
+impl<'tcx> ConstraintContext<'tcx> {
     pub fn new() -> Self {
         ConstraintContext {
             next_id: 0,
@@ -143,6 +154,7 @@ impl ConstraintContext {
             var_groups: vec![VarGroup {
                 label: "stdin".to_string(),
                 variables: Vec::new(),
+                ty: None,
             }],
             constraints: Vec::new(),
         }
@@ -166,7 +178,7 @@ impl ConstraintContext {
         SByte::Abstract(AbstractVariable(id))
     }
 
-    pub fn fresh_var_group(&mut self, label: String, size: u32) -> Vec<SByte> {
+    pub fn fresh_var_group(&mut self, label: String, size: u32, ty: Ty<'tcx>) -> Vec<SByte> {
         let mut sbytes = Vec::new();
         let mut vars = Vec::new();
         for _ in 0..size {
@@ -177,6 +189,7 @@ impl ConstraintContext {
         self.var_groups.push(VarGroup {
             label: label,
             variables: vars,
+            ty: Some(ty),
         });
         sbytes
     }
@@ -329,7 +342,7 @@ impl ConstraintContext {
         new_array
     }
 
-    pub fn get_satisfying_values(&self) -> Vec<SatisfiedVarGroup> {
+    pub fn get_satisfying_values<'a>(&self, formatter: &FormatExecutor<'a, 'tcx>) -> Vec<SatisfiedVarGroup> {
         let cfg = z3::Config::new();
         let ctx = z3::Context::new(&cfg);
         let solver = z3::Solver::new(&ctx);
@@ -342,9 +355,9 @@ impl ConstraintContext {
         //let mut result_consts = Vec::new();
 
         //let consts = self.variables_inner.iter().map(|v| self.variable_to_ast(&ctx, *v));
-        // Each group has its variables mapped to z3 ASTs. Keep the labels.
+        // Each group has its variables mapped to z3 ASTs. Keep the labels and types.
         let result_consts = self.var_groups.iter().map(
-            |g| (g.label.clone(), g.variables.iter().map(|v| self.variable_to_ast(&ctx, *v))));
+            |g| (g.label.clone(), g.variables.iter().map(|v| self.variable_to_ast(&ctx, *v)), g.ty));
 
         for c in &self.constraints {
             solver.assert(&self.constraint_to_ast(&ctx, *c));
@@ -354,12 +367,23 @@ impl ConstraintContext {
         let model = solver.get_model();
 
         let mut result = Vec::new();
-        for (label, asts) in result_consts {
+        for (label, asts, ty_opt) in result_consts {
+            let assignments: Vec<u8> = asts.map(
+                    |ast| model.eval(&ast).unwrap().as_u64().unwrap() as u8)
+                    .collect();
+            println!("attempting formatting for {:?}", label);
+            let assignments_str = match ty_opt {
+                Some(ty) => {
+                    let s_res = formatter.debug_repr(&assignments, ty);
+                    println!("debug_repr result: {:?}", s_res);
+                    s_res.ok()
+                }
+                None => None,
+            };
             result.push(SatisfiedVarGroup {
                 label: label,
-                assignments: asts.map(
-                    |ast| model.eval(&ast).unwrap().as_u64().unwrap() as u8)
-                    .collect(),
+                assignments: assignments,
+                assignments_str: assignments_str,
             });
         }
 

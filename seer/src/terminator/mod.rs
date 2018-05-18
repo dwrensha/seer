@@ -534,8 +534,6 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
 
                         // String args[0]: ByRef(MemoryPointer { alloc_id: AllocId(45), offset: Concrete(0) })
                         // &str args[0]: ByValPair(Ptr(MemoryPointer { alloc_id: AllocId(2), offset: Concrete(0) }), Bytes(3))
-                        println!("args[0]: {:?}", args[0]);
-                        println!("sig: {:?}", sig);
 
                         //let t = sig.inputs_and_output.get(0).unwrap();
                         //str
@@ -565,7 +563,6 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                                 }
                             }).collect();
                             let s = str::from_utf8(&bytes);
-                            println!("bytes: {:?}", bytes);
                             println!("s: {:?}", s);
                         }
                         //if let Value::ByRef(mem_ptr) = args[0] {
@@ -581,7 +578,6 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                         //let s1 = mem::transmute::<String>(s);
                     }
                     "seer_helper::mksym" => {
-                        println!("{:?}\n{:?}", arg_operands[0], sig);
                         let (lval, block) = destination.expect("seer_helper::mksym() does not diverge");
                         let args_res: EvalResult<Vec<Value>> = arg_operands.iter()
                             .map(|arg| self.eval_operand(arg))
@@ -590,7 +586,8 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
 
                         match args[0] {
                             Value::ByVal(PrimVal::Ptr(ptr)) => {
-                                let len = self.type_size(instance.substs.type_at(0))?.expect("instance?");
+                                let ty = instance.substs.type_at(0);
+                                let len = self.type_size(ty)?.expect("instance?");
                                 let source = match self.codemap.span_to_snippet(span) {
                                     Ok(s) => s,
                                     Err(e) => bug!("failed to get source for span {:?}: {:?}", span, e),
@@ -600,7 +597,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                                 let re = Regex::new(r"mksym\(&?(?:mut)?\s*(.*)\)").unwrap();
                                 let caps = re.captures(&source).unwrap();
                                 let label = format!("{}", &caps[1]);
-                                self.memory.write_fresh_var_group(ptr, len as u64, label)?;
+                                self.memory.write_fresh_var_group(ptr, len as u64, label, ty)?;
                             }
                             _ => {
                                 unimplemented!()

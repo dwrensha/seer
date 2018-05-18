@@ -28,6 +28,7 @@ mod constraints;
 mod error;
 mod eval_context;
 mod executor;
+mod format_executor;
 mod lvalue;
 mod memory;
 mod operator;

@@ -69,9 +69,6 @@ fn after_analysis_run_main<'a, 'tcx>(config: ::ExecutionConfig)
         let codemap = state.session.codemap();
         let limits = resource_limits_from_attributes(state);
 
-        // TODO: don't
-        test_eval_fn(&tcx, "print");
-
         if let Some((entry_node_id, _)) = *state.session.entry_fn.borrow() {
             let entry_def_id = tcx.hir.local_def_id(entry_node_id);
 
@@ -150,65 +147,3 @@ pub fn main_helper(mut args: Vec<String>, config: ::ExecutionConfig)
                                None, None);
 }
 
-use rustc::hir;
-use rustc::hir::itemlikevisit::ItemLikeVisitor;
-use syntax::codemap::Span;
-use rustc::ty::TyCtxt;
-
-fn test_eval_fn(tcx: &TyCtxt, name: &str) {
-    let (entry_node_id, _) = find_fn_by_name(tcx, name).unwrap();
-    let entry_def_id = tcx.hir.local_def_id(entry_node_id);
-
-    //let mut config = ::executor::ExecutionConfig::new();
-    //config.consumer(|complete: ::seer::ExecutionComplete| {
-    //    // this doesn't help us with evaluating the function because
-    //    // the entry point can't have arguments or a return value
-    //    false
-    //});
-
-    //let mut executor = ::executor::Executor::new(tcx, entry_def_id, limits, config.clone(), codemap);
-    //executor.run();
-}
-
-fn find_fn_by_name(tcx: &TyCtxt, name: &str) -> Option<(ast::NodeId, Span)> {
-    // TODO: find things outside the user crate
-    let mut visitor = FunctionVisitor::new(name);
-    tcx.hir.krate().visit_all_item_likes(&mut visitor);
-    visitor.display_fn.map(|(node_id, _span)| node_id);
-    println!("formatter: {:?}", visitor.display_fn.is_some());
-    visitor.display_fn
-}
-
-struct FunctionVisitor<'a> {
-    display_fn: Option<(ast::NodeId, Span)>,
-    name: &'a str,
-}
-
-impl<'a> FunctionVisitor<'a> {
-    fn new(name: &'a str) -> FunctionVisitor {
-        FunctionVisitor {
-            display_fn: None,
-            name: name,
-        }
-    }
-}
-
-impl<'a, 'tcx> ItemLikeVisitor<'tcx> for FunctionVisitor<'a> {
-    fn visit_item(&mut self, i: &'tcx hir::Item){
-        match i.node {
-            hir::ItemFn(..) => {
-                println!("visited fn: {}", i.name);
-                if i.name == self.name {
-                    self.display_fn = Some((i.id, i.span));
-                }
-            }
-            _ => {}
-        }
-    }
-
-    fn visit_trait_item(&mut self, _trait_item: &'tcx hir::TraitItem) {
-    }
-
-    fn visit_impl_item(&mut self, _impl_item: &'tcx hir::ImplItem) {
-    }
-}

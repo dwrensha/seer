@@ -9,13 +9,18 @@ struct Test {
 }
 
 fn main() {
-    //let s = "abc".to_string();
-    //let s = format!("abc");
-    //let s = "abc";
-    //seer_helper::test(s);
-    seer_helper::test(&print(Test {a: 321, b: 123}));
+    let mut t = Test {a:0,b:0};
+    seer_helper::mksym(&mut t);
+    if t.a == 123 && t.b == 321 {panic!()}
 }
 
+#[allow(dead_code)]
 fn print<T: fmt::Debug>(t: T) -> String {
-    format!("{:?}", t)
+    let s = format!("{:?}", t);
+    //seer_helper::test(&s);
+    //let ptr = s.as_ptr() as u64;
+    //let len = s.len();
+    //let cap = s.capacity();
+    //seer_helper::test(&format!("ptr too dangerous to read, len {}, cap {}", len, cap));
+    s
 }

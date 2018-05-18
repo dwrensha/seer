@@ -13,11 +13,13 @@ use error::{StaticEvalError, EvalError};
 use lvalue::{Lvalue};
 use eval_context::{EvalContext, Frame, ResourceLimits, StackPopCleanup};
 use value::{PrimVal};
+use format_executor::FormatExecutor;
 
 pub struct Executor<'a, 'tcx: 'a> {
     tcx: TyCtxt<'a, 'tcx, 'tcx>,
     queue: VecDeque<EvalContext<'a, 'tcx>>,
     config: ExecutionConfig,
+    formatter: FormatExecutor<'a, 'tcx>,
 }
 
 pub struct FinishStep<'tcx> {
@@ -88,6 +90,7 @@ impl <'a, 'tcx: 'a> Executor<'a, 'tcx> {
             tcx: tcx,
             queue: VecDeque::new(),
             config: config,
+            formatter: FormatExecutor::new(tcx, limits, codemap),
         };
 
         let mut ecx = EvalContext::new(tcx, limits, codemap);
@@ -125,7 +128,7 @@ impl <'a, 'tcx: 'a> Executor<'a, 'tcx> {
     }
 
     // return true if we should continue with other executions
-    fn report_error(&mut self, ecx: &EvalContext, e: EvalError) -> bool {
+    fn report_error(&mut self, ecx: EvalContext<'a, 'tcx>, e: EvalError) -> bool {
         if self.config.emit_error {
             report(self.tcx, &ecx, e.clone());
         }
@@ -133,7 +136,7 @@ impl <'a, 'tcx: 'a> Executor<'a, 'tcx> {
         match self.config.consumer {
             Some(ref f) => {
                 (&mut *f.borrow_mut())(ExecutionComplete {
-                    input: ecx.memory.constraints.get_satisfying_values(),
+                    input: ecx.memory.constraints.get_satisfying_values(&self.formatter),
                     result: Err(e.into())
                 })
             }
@@ -167,7 +170,7 @@ impl <'a, 'tcx: 'a> Executor<'a, 'tcx> {
                                         cx.goto_block(goto_block);
                                     }
                                     FinishStepVariant::Error(ref e) => {
-                                        if !self.report_error(&cx, e.clone()) {
+                                        if !self.report_error(cx.clone(), e.clone()) {
                                             break 'main_loop;
                                         }
                                     }
@@ -181,7 +184,7 @@ impl <'a, 'tcx: 'a> Executor<'a, 'tcx> {
                     let go_on = match self.config.consumer {
                         Some(ref f) => {
                             (&mut *f.borrow_mut())(ExecutionComplete {
-                                input: ecx.memory.constraints.get_satisfying_values(),
+                                input: ecx.memory.constraints.get_satisfying_values(&self.formatter),
                                 result: Ok(())
                             })
                         }
@@ -196,7 +199,7 @@ impl <'a, 'tcx: 'a> Executor<'a, 'tcx> {
                     }
                 }
                 Err(e) => {
-                    if !self.report_error(&ecx, e) {
+                    if !self.report_error(ecx, e) {
                         break;
                     }
                 }
