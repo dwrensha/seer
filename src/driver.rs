@@ -35,7 +35,7 @@ impl<'a> CompilerCalls<'a> for SeerCompilerCalls {
     }
     fn late_callback(
         &mut self,
-        trans: &::rustc_trans_utils::trans_crate::TransCrate,
+        trans: &::rustc_codegen_utils::codegen_backend::CodegenBackend,
         matches: &getopts::Matches,
         sess: &Session,
         cstore: &CrateStore,
