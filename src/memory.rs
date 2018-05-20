@@ -302,7 +302,7 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
                                 -> EvalResult<'tcx, MemoryPointer>
     {
         if self.rustc_allocations.contains_key(&ptr.alloc_id) {
-            Ok(MemoryPointer::new(AllocId(self.rustc_allocations[&ptr.alloc_id].0), ptr.offset))
+            Ok(MemoryPointer::new(AllocId(self.rustc_allocations[&ptr.alloc_id].0), ptr.offset.bytes()))
         } else {
             let static_ = tcx
                 .interpret_interner
@@ -340,7 +340,7 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
                 self.next_id.0 += 1;
                 self.alloc_map.insert(id, new_alloc);
                 self.rustc_allocations.insert(ptr.alloc_id, id);
-                Ok(MemoryPointer::new(id, ptr.offset))
+                Ok(MemoryPointer::new(id, ptr.offset.bytes()))
             } else {
                 panic!("missing allocation {:?}", ptr.alloc_id);
             }
