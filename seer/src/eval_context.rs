@@ -365,7 +365,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         self.type_align_with_substs(ty, self.substs())
     }
 
-    fn type_size_with_substs(
+    pub fn type_size_with_substs(
         &self,
         ty: Ty<'tcx>,
         substs: &'tcx Substs<'tcx>,
@@ -378,7 +378,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         }
     }
 
-    fn type_align_with_substs(&self, ty: Ty<'tcx>, substs: &'tcx Substs<'tcx>) -> EvalResult<'tcx, u64> {
+    pub fn type_align_with_substs(&self, ty: Ty<'tcx>, substs: &'tcx Substs<'tcx>) -> EvalResult<'tcx, u64> {
         self.type_layout_with_substs(ty, substs).map(|layout| {
             layout.align.abi()
         })
