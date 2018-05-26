@@ -21,11 +21,25 @@ pub struct FormatExecutor<'a, 'tcx: 'a> {
     tcx: TyCtxt<'a, 'tcx, 'tcx>,
     entry_def_id: DefId,
     initial_ecx: EvalContext<'a, 'tcx>,
+    // pointer to string s in EvalContext
     return_ptr: MemoryPointer,
     // offset for s.vec.len
     len_offset: u64,
     // offset for s.vec.buf.ptr
     ptr_offset: u64,
+}
+
+/// find field by name, return Ty and offset
+/// panics if ty is not of the TyAdt variant
+fn field_ty_and_offset<'a, 'tcx: 'a>(ecx: &EvalContext<'a, 'tcx>, ty: Ty<'tcx>, field_substs: &ty::subst::Substs<'tcx>, name: &str) -> Option<(Ty<'tcx>, u64)> {
+    for (field_num, field_def) in ty.ty_adt_def().unwrap().all_fields().enumerate() {
+        if field_def.name == name {
+            let field_ty = field_def.ty(ecx.tcx, field_substs);
+            let field_offset = ecx.layout_of(ty).unwrap().fields.offset(field_num).bytes();
+            return Some((field_ty, field_offset))
+        }
+    }
+    None
 }
 
 impl<'a, 'tcx: 'a> FormatExecutor<'a, 'tcx> {
@@ -52,25 +66,12 @@ impl<'a, 'tcx: 'a> FormatExecutor<'a, 'tcx> {
 
         // find offsets for s.vec.len and s.vec.buf.ptr
         let (len_offset, ptr_offset) = {
-            // find field by name, return Ty and offset
-            // panics if ty is not of the TyAdt variant
-            let field_ty_and_offset = |ty: Ty<'tcx>, field_substs: &ty::subst::Substs<'tcx>, name: &str|  {
-                for (field_num, field_def) in ty.ty_adt_def().unwrap().all_fields().enumerate() {
-                    if field_def.name == name {
-                        let field_ty = field_def.ty(tcx, field_substs);
-                        let field_offset = ecx.layout_of(ty).unwrap().fields.offset(field_num).bytes();
-                        return Some((field_ty, field_offset))
-                    }
-                }
-                None
-            };
-
-            let (vec_ty, vec_offset) = field_ty_and_offset(string_ty, substs_u8, "vec").unwrap();
-            let (_, len_offset) = field_ty_and_offset(vec_ty, substs_u8, "len").unwrap();
+            let (vec_ty, vec_offset) = field_ty_and_offset(&ecx, string_ty, substs_u8, "vec").unwrap();
+            let (_, len_offset) = field_ty_and_offset(&ecx, vec_ty, substs_u8, "len").unwrap();
             let len_offset_total = vec_offset + len_offset;
 
-            let (buf_ty, buf_offset) = field_ty_and_offset(vec_ty, substs_u8, "buf").unwrap();
-            let (_, ptr_offset) = field_ty_and_offset(buf_ty, substs_u8, "ptr").unwrap();
+            let (buf_ty, buf_offset) = field_ty_and_offset(&ecx, vec_ty, substs_u8, "buf").unwrap();
+            let (_, ptr_offset) = field_ty_and_offset(&ecx, buf_ty, substs_u8, "ptr").unwrap();
             let ptr_offset_total = vec_offset + buf_offset + ptr_offset;
 
             (len_offset_total, ptr_offset_total)
