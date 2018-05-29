@@ -13,13 +13,13 @@ use error::{StaticEvalError, EvalError};
 use lvalue::{Lvalue};
 use eval_context::{EvalContext, Frame, ResourceLimits, StackPopCleanup};
 use value::{PrimVal};
-use format_executor::FormatExecutor;
+use format_executor::BestEffortFormatter;
 
 pub struct Executor<'a, 'tcx: 'a> {
     tcx: TyCtxt<'a, 'tcx, 'tcx>,
     queue: VecDeque<EvalContext<'a, 'tcx>>,
     config: ExecutionConfig,
-    formatter: FormatExecutor<'a, 'tcx>,
+    formatter: BestEffortFormatter<'a, 'tcx>,
 }
 
 pub struct FinishStep<'tcx> {
@@ -90,7 +90,7 @@ impl <'a, 'tcx: 'a> Executor<'a, 'tcx> {
             tcx: tcx,
             queue: VecDeque::new(),
             config: config,
-            formatter: FormatExecutor::new(tcx, limits, codemap),
+            formatter: BestEffortFormatter::new(tcx, limits, codemap),
         };
 
         let mut ecx = EvalContext::new(tcx, limits, codemap);

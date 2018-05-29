@@ -16,11 +16,5 @@ fn main() {
 
 #[allow(dead_code)]
 fn print<T: fmt::Debug>(t: T) -> String {
-    let s = format!("{:?}", t);
-    //seer_helper::test(&s);
-    //let ptr = s.as_ptr() as u64;
-    //let len = s.len();
-    //let cap = s.capacity();
-    //seer_helper::test(&format!("ptr too dangerous to read, len {}, cap {}", len, cap));
-    s
+    format!("{:?}", t)
 }

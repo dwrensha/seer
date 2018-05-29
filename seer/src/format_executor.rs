@@ -4,9 +4,9 @@ use std::str;
 
 use rustc::ty::{self, Ty, TyCtxt};
 use rustc::ty::layout::LayoutOf;
-use rustc::hir::def_id::DefId;
 
 use rustc::hir;
+use rustc::hir::def_id::DefId;
 use rustc::hir::itemlikevisit::ItemLikeVisitor;
 use syntax::codemap::{DUMMY_SP, Span, CodeMap};
 use syntax::ast;
@@ -16,6 +16,43 @@ use lvalue::Lvalue;
 use error::EvalResult;
 use executor::{FinishStep, FinishStepVariant};
 use memory::{SByte, MemoryPointer};
+
+pub trait DebugFormatter<'tcx> {
+    fn debug_repr(&self, data: &[u8], ty: Ty<'tcx>) -> EvalResult<'tcx, String>;
+}
+
+pub struct BestEffortFormatter<'a, 'tcx: 'a> {
+    opt_formatter: Option<FormatExecutor<'a, 'tcx>>,
+}
+
+impl<'a, 'tcx: 'a> BestEffortFormatter<'a, 'tcx> {
+    pub fn new(
+        tcx: TyCtxt<'a, 'tcx, 'tcx>,
+        limits: ResourceLimits,
+        codemap: &'a CodeMap,
+    )
+        -> Self
+    {
+        // TODO: find the right function
+        match find_fn_by_name(&tcx, "print") {
+            Some(def_id) => BestEffortFormatter {
+                opt_formatter: Some(FormatExecutor::new(tcx, def_id, limits, codemap))
+            },
+            None => BestEffortFormatter {
+                opt_formatter: None,
+            },
+        }
+    }
+}
+
+impl<'a, 'tcx: 'a> DebugFormatter<'tcx> for BestEffortFormatter<'a, 'tcx> {
+    fn debug_repr(&self, data: &[u8], ty: Ty<'tcx>) -> EvalResult<'tcx, String> {
+        match self.opt_formatter {
+            Some(ref formatter) => formatter.debug_repr(data, ty),
+            None => Ok(format!("{:?}", data)),
+        }
+    }
+}
 
 pub struct FormatExecutor<'a, 'tcx: 'a> {
     tcx: TyCtxt<'a, 'tcx, 'tcx>,
@@ -45,14 +82,12 @@ fn field_ty_and_offset<'a, 'tcx: 'a>(ecx: &EvalContext<'a, 'tcx>, ty: Ty<'tcx>, 
 impl<'a, 'tcx: 'a> FormatExecutor<'a, 'tcx> {
     pub fn new(
         tcx: TyCtxt<'a, 'tcx, 'tcx>,
+        entry_def_id: DefId,
         limits: ResourceLimits,
         codemap: &'a CodeMap,
     )
         -> Self
     {
-        // TODO: find the right function
-        let (entry_node_id, _) = find_fn_by_name(&tcx, "print").expect("failed to find entry function for output formatter");
-        let entry_def_id = tcx.hir.local_def_id(entry_node_id);
         let mut ecx = EvalContext::new(tcx, limits, codemap);
 
         let substs_u8 = tcx.mk_substs([ty::subst::Kind::from(tcx.types.u8)].iter());
@@ -87,14 +122,7 @@ impl<'a, 'tcx: 'a> FormatExecutor<'a, 'tcx> {
         }
     }
 
-    pub fn debug_repr(&self, data: &[u8], ty: Ty<'tcx>) -> EvalResult<'tcx, String> {
-        // prepare the stack so we are inside the function call
-        let ecx  = self.prepare(data, ty)?;
-        // execute until the entry function returns
-        let ecx = self.run(ecx)?;
-        // read ecx memory
-        self.read_string(ecx, self.return_ptr)
-    }
+    
 
     fn prepare(&self, data: &[u8], ty: Ty<'tcx>) -> EvalResult<'tcx, EvalContext<'a, 'tcx>> {
         let mut ecx = self.initial_ecx.clone();
@@ -182,13 +210,21 @@ impl<'a, 'tcx: 'a> FormatExecutor<'a, 'tcx> {
     }
 }
 
-fn find_fn_by_name(tcx: &TyCtxt, name: &str) -> Option<(ast::NodeId, Span)> {
+impl<'a, 'tcx: 'a> DebugFormatter<'tcx> for  FormatExecutor<'a, 'tcx> {
+    fn debug_repr(&self, data: &[u8], ty: Ty<'tcx>) -> EvalResult<'tcx, String> {
+        // prepare the stack so we are inside the function call
+        let ecx  = self.prepare(data, ty)?;
+        // execute until the entry function returns
+        let ecx = self.run(ecx)?;
+        // read ecx memory
+        self.read_string(ecx, self.return_ptr)
+    }
+}
+fn find_fn_by_name(tcx: &TyCtxt, name: &str) -> Option<DefId> {
     // TODO: find things outside the user crate
     let mut visitor = FunctionVisitor::new(name);
-    //println!("\n\n{:#?}\n\n", tcx.hir.krate());
     tcx.hir.krate().visit_all_item_likes(&mut visitor);
-    println!("formatter: {:?}", visitor.display_fn.is_some());
-    visitor.display_fn
+    visitor.display_fn.map(|(node_id, _)| tcx.hir.local_def_id(node_id))
 }
 
 struct FunctionVisitor<'a> {
@@ -209,7 +245,7 @@ impl<'a, 'tcx> ItemLikeVisitor<'tcx> for FunctionVisitor<'a> {
     fn visit_item(&mut self, i: &'tcx hir::Item){
         match i.node {
             hir::ItemFn(..) => {
-                println!("visited fn: {}", i.name);
+                //println!("visited fn: {}", i.name);
                 if i.name == self.name {
                     self.display_fn = Some((i.id, i.span));
                 }
@@ -219,9 +255,9 @@ impl<'a, 'tcx> ItemLikeVisitor<'tcx> for FunctionVisitor<'a> {
                     Some(original) => original.as_str(),
                     None => i.name.as_str(),
                 };
-                println!("visited extern crate '{}'", name);
+                //println!("visited extern crate '{}'", name);
                 if name == "seer_helper" {
-                    println!("found helper crate: {:?}", i);
+                    //println!("found helper crate: {:?}", i);
                 }
             }
             _ => {

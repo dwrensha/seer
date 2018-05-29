@@ -5,7 +5,7 @@ use std::fmt;
 
 use memory::{AbstractVariable, SByte};
 use value::{PrimVal, PrimValKind};
-use format_executor::FormatExecutor;
+use format_executor::DebugFormatter;
 
 #[derive(Debug, Clone, Copy)]
 enum VarType {
@@ -342,7 +342,9 @@ impl<'tcx> ConstraintContext<'tcx> {
         new_array
     }
 
-    pub fn get_satisfying_values<'a>(&self, formatter: &FormatExecutor<'a, 'tcx>) -> Vec<SatisfiedVarGroup> {
+    pub fn get_satisfying_values<T>(&self, formatter: &T) -> Vec<SatisfiedVarGroup>
+        where T: DebugFormatter<'tcx>
+    {
         let cfg = z3::Config::new();
         let ctx = z3::Context::new(&cfg);
         let solver = z3::Solver::new(&ctx);
@@ -352,9 +354,6 @@ impl<'tcx> ConstraintContext<'tcx> {
             consts.push(self.variable_to_ast(&ctx, *v));
         }
 
-        //let mut result_consts = Vec::new();
-
-        //let consts = self.variables_inner.iter().map(|v| self.variable_to_ast(&ctx, *v));
         // Each group has its variables mapped to z3 ASTs. Keep the labels and types.
         let result_consts = self.var_groups.iter().map(
             |g| (g.label.clone(), g.variables.iter().map(|v| self.variable_to_ast(&ctx, *v)), g.ty));
@@ -371,11 +370,9 @@ impl<'tcx> ConstraintContext<'tcx> {
             let assignments: Vec<u8> = asts.map(
                     |ast| model.eval(&ast).unwrap().as_u64().unwrap() as u8)
                     .collect();
-            println!("attempting formatting for {:?}", label);
             let assignments_str = match ty_opt {
                 Some(ty) => {
                     let s_res = formatter.debug_repr(&assignments, ty);
-                    println!("debug_repr result: {:?}", s_res);
                     s_res.ok()
                 }
                 None => None,
