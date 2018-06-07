@@ -1,6 +1,6 @@
+#[macro_use]
 extern crate seer_helper;
-
-use std::fmt;
+seer_helper_init!();
 
 #[derive(Debug)]
 struct Test {
@@ -12,9 +12,4 @@ fn main() {
     let mut t = Test {a:0,b:0};
     seer_helper::mksym(&mut t);
     if t.a == 123 && t.b == 321 {panic!()}
-}
-
-#[allow(dead_code)]
-fn print<T: fmt::Debug>(t: T) -> String {
-    format!("{:?}", t)
 }

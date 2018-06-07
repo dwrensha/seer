@@ -33,8 +33,7 @@ impl<'a, 'tcx: 'a> BestEffortFormatter<'a, 'tcx> {
     )
         -> Self
     {
-        // TODO: find the right function
-        match find_fn_by_name(&tcx, "print") {
+        match find_fn_by_name(&tcx, "seer_helper_format") {
             Some(def_id) => BestEffortFormatter {
                 opt_formatter: Some(FormatExecutor::new(tcx, def_id, limits, codemap))
             },
