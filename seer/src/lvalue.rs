@@ -1,6 +1,6 @@
 use rustc::mir;
 use rustc::ty::layout::{HasDataLayout, TyLayout};
-use rustc::ty::{self, Ty};
+use rustc::ty::{self, Ty, TyCtxt};
 use rustc_data_structures::indexed_vec::Idx;
 
 use error::{EvalError, EvalResult};
@@ -86,9 +86,9 @@ impl<'tcx> Lvalue<'tcx> {
         ptr.to_ptr()
     }
 
-    pub(super) fn elem_ty_and_len(self, ty: Ty<'tcx>) -> (Ty<'tcx>, u64) {
+    pub(super) fn elem_ty_and_len(self, ty: Ty<'tcx>, tcx: TyCtxt<'_, 'tcx, '_>) -> (Ty<'tcx>, u64) {
         match ty.sty {
-            ty::TyArray(elem, n) => (elem, n.val.to_const_int().unwrap().to_u64().unwrap()  as u64),
+            ty::TyArray(elem, n) => (elem, n.unwrap_usize(tcx)),
 
             ty::TySlice(elem) => {
                 match self {
@@ -333,7 +333,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         let base = self.force_allocation(base)?;
         let (base_ptr, _) = base.to_ptr_and_extra();
 
-        let (elem_ty, len) = base.elem_ty_and_len(outer_ty);
+        let (elem_ty, len) = base.elem_ty_and_len(outer_ty, self.tcx);
         let elem_size = self.type_size(elem_ty)?.expect(
             "slice element must be sized",
         );
@@ -413,8 +413,8 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 let val = self.read_lvalue(base)?;
 
                 let pointee_type = match base_ty.sty {
-                    ty::TyRawPtr(ref tam) |
-                    ty::TyRef(_, ref tam) => tam.ty,
+                    ty::TyRawPtr(ty::TypeAndMut {ty, ..}) |
+                    ty::TyRef(_, ty, _) => ty,
                     ty::TyAdt(def, _) if def.is_box() => base_ty.boxed_ty(),
                     _ => bug!("can only deref pointer types"),
                 };
@@ -440,7 +440,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 let base = self.force_allocation(base)?;
                 let (base_ptr, _) = base.to_ptr_and_extra();
 
-                let (elem_ty, n) = base.elem_ty_and_len(base_ty);
+                let (elem_ty, n) = base.elem_ty_and_len(base_ty, self.tcx);
                 let elem_size = self.type_size(elem_ty)?.expect(
                     "sequence element must be sized",
                 );
@@ -461,7 +461,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 let base = self.force_allocation(base)?;
                 let (base_ptr, _) = base.to_ptr_and_extra();
 
-                let (elem_ty, n) = base.elem_ty_and_len(base_ty);
+                let (elem_ty, n) = base.elem_ty_and_len(base_ty, self.tcx);
                 let elem_size = self.type_size(elem_ty)?.expect(
                     "slice element must be sized",
                 );

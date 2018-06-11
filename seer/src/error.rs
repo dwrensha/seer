@@ -3,7 +3,6 @@ use std::fmt;
 use rustc::mir;
 use rustc::ty::{FnSig, Ty, layout};
 use memory::{MemoryPointer, PointerOffset};
-use rustc_const_math::ConstMathErr;
 use syntax::codemap::Span;
 
 #[derive(Clone, Debug)]
@@ -31,9 +30,10 @@ pub enum EvalError<'tcx> {
     DerefFunctionPointer,
     ExecuteMemory,
     ArrayIndexOutOfBounds(Span, u64, u64),
-    Math(Span, ConstMathErr),
     Intrinsic(String),
-    OverflowingMath,
+    Overflow(mir::BinOp),
+    OverflowNeg,
+    RemainderByZero,
     InvalidChar(u128),
     OutOfMemory {
         allocation_size: u64,
@@ -101,12 +101,18 @@ impl<'tcx> Error for EvalError<'tcx> {
                 "tried to treat a memory pointer as a function pointer",
             EvalError::ArrayIndexOutOfBounds(..) =>
                 "array index out of bounds",
-            EvalError::Math(..) =>
-                "mathematical operation failed",
             EvalError::Intrinsic(..) =>
                 "intrinsic failed",
-            EvalError::OverflowingMath =>
-                "attempted to do overflowing math",
+            EvalError::Overflow(mir::BinOp::Add) => "attempt to add with overflow",
+            EvalError::Overflow(mir::BinOp::Sub) => "attempt to subtract with overflow",
+            EvalError::Overflow(mir::BinOp::Mul) => "attempt to multiply with overflow",
+            EvalError::Overflow(mir::BinOp::Div) => "attempt to divide with overflow",
+            EvalError::Overflow(mir::BinOp::Rem) => "attempt to calculate the remainder with overflow",
+            EvalError::Overflow(mir::BinOp::Shr) => "attempt to shift right with overflow",
+            EvalError::Overflow(mir::BinOp::Shl) => "attempt to shift left with overflow",
+            EvalError::Overflow(op) => panic!("cannot overflow {:?}", op),
+            EvalError::OverflowNeg => "attempt to negate with overflow",
+            EvalError::RemainderByZero => "attempt to calculate the remainder with a divisor of zero",
             EvalError::NoMirFor(..) =>
                 "mir not found",
             EvalError::InvalidChar(..) =>
@@ -175,8 +181,6 @@ impl<'tcx> fmt::Display for EvalError<'tcx> {
                 write!(f, "tried to call a function with sig {} through a function pointer of type {}", sig, got),
             EvalError::ArrayIndexOutOfBounds(span, len, index) =>
                 write!(f, "index out of bounds: the len is {} but the index is {} at {:?}", len, index, span),
-            EvalError::Math(span, ref err) =>
-                write!(f, "{:?} at {:?}", err, span),
             EvalError::InvalidChar(c) =>
                 write!(f, "tried to interpret an invalid 32-bit value as a char: {}", c),
             EvalError::OutOfMemory { allocation_size, memory_size, memory_usage } =>
@@ -219,9 +223,10 @@ pub enum StaticEvalError {
     DerefFunctionPointer,
     ExecuteMemory,
     ArrayIndexOutOfBounds(Span, u64, u64),
-    Math(Span, ConstMathErr),
     Intrinsic(String),
-    OverflowingMath,
+    Overflow(mir::BinOp),
+    OverflowNeg,
+    RemainderByZero,
     InvalidChar(u128),
     OutOfMemory {
         allocation_size: u64,
@@ -288,12 +293,14 @@ impl <'tcx> From<EvalError<'tcx>> for StaticEvalError {
                 StaticEvalError::ExecuteMemory,
             EvalError::ArrayIndexOutOfBounds(a, b, c) =>
                 StaticEvalError::ArrayIndexOutOfBounds(a, b, c),
-            EvalError::Math(span, e) =>
-                StaticEvalError::Math(span, e),
             EvalError::Intrinsic(s) =>
                 StaticEvalError::Intrinsic(s),
-            EvalError::OverflowingMath =>
-                StaticEvalError::OverflowingMath,
+            EvalError::Overflow(op) =>
+                StaticEvalError::Overflow(op),
+            EvalError::OverflowNeg =>
+                StaticEvalError::OverflowNeg,
+            EvalError::RemainderByZero =>
+                StaticEvalError::RemainderByZero,
             EvalError::NoMirFor(ref s) =>
                 StaticEvalError::NoMirFor(s.clone()),
             EvalError::InvalidChar(c) =>

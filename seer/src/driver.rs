@@ -35,7 +35,7 @@ impl<'a> CompilerCalls<'a> for SeerCompilerCalls {
     }
     fn late_callback(
         &mut self,
-        trans: &::rustc_trans_utils::trans_crate::TransCrate,
+        codegen_backend: &::rustc_codegen_utils::codegen_backend::CodegenBackend,
         matches: &getopts::Matches,
         sess: &Session,
         cstore: &CrateStore,
@@ -43,7 +43,7 @@ impl<'a> CompilerCalls<'a> for SeerCompilerCalls {
         odir: &Option<PathBuf>,
         ofile: &Option<PathBuf>
     ) -> Compilation {
-        self.0.late_callback(trans, matches, sess, cstore, input, odir, ofile)
+        self.0.late_callback(codegen_backend, matches, sess, cstore, input, odir, ofile)
     }
     fn build_controller(&mut self, sess: &Session, matches: &getopts::Matches) -> CompileController<'a> {
         let mut control = self.0.build_controller(sess, matches);
@@ -69,7 +69,7 @@ fn after_analysis_run_main<'a, 'tcx>(config: ::ExecutionConfig)
         let codemap = state.session.codemap();
         let limits = resource_limits_from_attributes(state);
 
-        if let Some((entry_node_id, _)) = *state.session.entry_fn.borrow() {
+        if let Some((entry_node_id, _, _)) = *state.session.entry_fn.borrow() {
             let entry_def_id = tcx.hir.local_def_id(entry_node_id);
 
             let mut executor = ::executor::Executor::new(tcx, entry_def_id, limits, config.clone(), codemap);
@@ -93,7 +93,7 @@ fn resource_limits_from_attributes(state: &CompileState) -> ::ResourceLimits {
         }
     };
 
-    for attr in krate.attrs.iter().filter(|a| a.name().map_or(false, |n| n == "miri")) {
+    for attr in krate.attrs.iter().filter(|a| a.name() == "miri") {
         if let Some(items) = attr.meta_item_list() {
             for item in items {
                 if let NestedMetaItemKind::MetaItem(ref inner) = item.node {

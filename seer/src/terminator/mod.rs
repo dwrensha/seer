@@ -4,7 +4,7 @@ use rustc::ty::{self, TypeVariants, Ty};
 use rustc::ty::layout::HasDataLayout;
 use syntax::codemap::Span;
 use syntax::attr;
-use syntax::abi::Abi;
+use rustc_target::spec::abi::Abi;
 
 use constraints::Constraint;
 use error::{EvalError, EvalResult};
@@ -57,7 +57,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     let mut target_block = targets[targets.len() - 1];
 
                     for (index, const_int) in values.iter().enumerate() {
-                        let prim = PrimVal::Bytes(const_int.to_u128_unchecked());
+                        let prim = PrimVal::Bytes(*const_int);
                         if discr_prim.to_bytes()? == prim.to_bytes()? {
                             target_block = targets[index];
                             break;
@@ -70,7 +70,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     let mut feasible_blocks_with_constraints = Vec::new();
                     let mut otherwise_constraints = Vec::new();
                     for (index, const_int) in values.iter().enumerate() {
-                        let prim = PrimVal::Bytes(const_int.to_u128_unchecked());
+                        let prim = PrimVal::Bytes(*const_int);
                         let eq_constraint = Constraint::new_compare(
                             mir::BinOp::Eq, discr_kind, discr_prim, prim);
                         otherwise_constraints.push(
@@ -117,10 +117,15 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                         let instance_ty = self.monomorphize(instance_ty, instance.substs);
                         match instance_ty.sty {
                             ty::TyFnDef(..) => {
-                                let sig = self.erase_lifetimes(&sig);
                                 let real_sig = instance_ty.fn_sig(self.tcx);
-                                let real_sig = self.erase_lifetimes(&real_sig);
-                                let real_sig = self.tcx.fully_normalize_associated_types_in(&real_sig);
+                                let sig = self.tcx.normalize_erasing_late_bound_regions(
+                                    ty::ParamEnv::reveal_all(),
+                                    &sig,
+                                );
+                                let real_sig = self.tcx.normalize_erasing_late_bound_regions(
+                                    ty::ParamEnv::reveal_all(),
+                                    &real_sig,
+                                );
                                 if !self.check_sig_compat(sig, real_sig)? {
                                     return Err(EvalError::FunctionPointerTyMismatch(real_sig, sig));
                                 }
@@ -159,8 +164,9 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                         self.goto_block(target);
                         Ok(None)
                     } else {
+                        use rustc::mir::interpret::EvalErrorKind::*;
                         match *msg {
-                            mir::AssertMessage::BoundsCheck { ref len, ref index } => {
+                            BoundsCheck { ref len, ref index } => {
                                 let span = terminator.source_info.span;
                                 let len = self.eval_operand_to_primval(len)
                                     .expect("can't eval len")
@@ -169,11 +175,11 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                                     .expect("can't eval index")
                                     .to_u64()?;
                                 Err(EvalError::ArrayIndexOutOfBounds(span, len, index))
-                            },
-                            mir::AssertMessage::Math(ref err) =>
-                                Err(EvalError::Math(terminator.source_info.span, err.clone())),
-                            mir::AssertMessage::GeneratorResumedAfterReturn => unimplemented!(),
-                            mir::AssertMessage::GeneratorResumedAfterPanic => unimplemented!(),
+                            }
+                            Overflow(op) => Err(EvalError::Overflow(op)),
+                            OverflowNeg => Err(EvalError::OverflowNeg),
+                            RemainderByZero => Err(EvalError::RemainderByZero),
+                            _ => unimplemented!(),
                         }
                     }
                 } else {
@@ -200,8 +206,9 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     }
 
                     if self.memory.constraints.is_feasible_with(&fail_constraints[..]) {
+                        use rustc::mir::interpret::EvalErrorKind::*;
                         let e = match *msg {
-                            mir::AssertMessage::BoundsCheck { ref len, ref index } => {
+                            BoundsCheck { ref len, ref index } => {
                                 let span = terminator.source_info.span;
                                 let len = self.eval_operand_to_primval(len)
                                     .expect("can't eval len")
@@ -211,10 +218,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                                     .to_u64()?;
                                 EvalError::ArrayIndexOutOfBounds(span, len, index)
                             },
-                            mir::AssertMessage::Math(ref err) =>
-                                EvalError::Math(terminator.source_info.span, err.clone()),
-                            mir::AssertMessage::GeneratorResumedAfterReturn => unimplemented!(),
-                            mir::AssertMessage::GeneratorResumedAfterPanic => unimplemented!(),
+                            _ => unimplemented!(),
                         };
 
                         finish_steps.push(
@@ -256,7 +260,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 // mutability of raw pointers.
                 // TODO: Should not be allowed when fat pointers are involved.
                 (&TypeVariants::TyRawPtr(_), &TypeVariants::TyRawPtr(_)) => true,
-                (&TypeVariants::TyRef(_, _), &TypeVariants::TyRef(_, _)) =>
+                (&TypeVariants::TyRef(_, _, _), &TypeVariants::TyRef(_, _, _)) =>
                     ty.is_mutable_pointer() == real_ty.is_mutable_pointer(),
                 // rule out everything else
                 _ => false
@@ -286,7 +290,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     // Second argument must be a tuple matching the argument list of sig
                     let snd_ty = real_sig.inputs_and_output[1];
                     match snd_ty.sty {
-                        TypeVariants::TyTuple(tys, _) if sig.inputs().len() == tys.len() =>
+                        TypeVariants::TyTuple(tys) if sig.inputs().len() == tys.len() =>
                             if sig.inputs().iter().zip(tys).all(|(ty, real_ty)| check_ty_compat(ty, real_ty)) {
                                 return Ok(true)
                             },
@@ -793,7 +797,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 return Ok(());
             }
 
-            "alloc::heap::::__rust_alloc" => {
+            "alloc::alloc::::__rust_alloc" => {
                 let usize = self.tcx.types.usize;
                 let size = self.value_to_primval(args[0], usize)?.to_u64()?;
                 let align = self.value_to_primval(args[1], usize)?.to_u64()?;
@@ -807,7 +811,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 return Ok(());
             }
 
-            "alloc::heap::::__rust_alloc_zeroed" => {
+            "alloc::alloc::::__rust_alloc_zeroed" => {
                 let usize = self.tcx.types.usize;
                 let size = self.value_to_primval(args[0], usize)?.to_u64()?;
                 let align = self.value_to_primval(args[1], usize)?.to_u64()?;
@@ -889,7 +893,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 return Ok(());
             }
 
-            "alloc::heap::::__rust_realloc" => {
+            "alloc::alloc::::__rust_realloc" => {
                 let (lval, block) = destination.expect("realloc() does not diverge");
                 let dest_ptr = self.force_allocation(lval)?.to_ptr()?;
 
@@ -900,17 +904,16 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
 
                 let usize = self.tcx.types.usize;
                 let _old_size = self.value_to_primval(args[1], usize)?.to_u64()?;
-                let _old_align = self.value_to_primval(args[2], usize)?.to_u64()?;
+                let align = self.value_to_primval(args[2], usize)?.to_u64()?;
                 let new_size = self.value_to_primval(args[3], usize)?.to_u64()?;
-                let new_align = self.value_to_primval(args[4], usize)?.to_u64()?;
 
-                let new_ptr = self.memory.reallocate(ptr, new_size, new_align)?;
+                let new_ptr = self.memory.reallocate(ptr, new_size, align)?;
                 self.memory.write_ptr(dest_ptr, new_ptr)?;
                 self.goto_block(block);
                 return Ok(());
             }
 
-            "alloc::heap::::__rust_dealloc" => {
+            "alloc::alloc::::__rust_dealloc" => {
                 let (_lval, block) = destination.expect("dealloc() does not diverge");
 
                 let ptr = match args[0] {
@@ -938,7 +941,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         let attrs = self.tcx.get_attrs(def_id);
         let link_name = match attr::first_attr_value_str_by_name(&attrs, "link_name") {
             Some(name) => name.as_str(),
-            None => self.tcx.item_name(def_id),
+            None => self.tcx.item_name(def_id).as_str(),
         };
 
         let args_res: EvalResult<Vec<Value>> = args.iter()

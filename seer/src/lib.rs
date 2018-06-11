@@ -1,6 +1,6 @@
 #![feature(
-    i128_type,
     inclusive_range,
+    inclusive_range_methods,
     rustc_private,
 )]
 
@@ -11,11 +11,12 @@ extern crate log_settings;
 extern crate getopts;
 #[macro_use]
 extern crate rustc;
-extern crate rustc_const_math;
+extern crate rustc_apfloat;
 extern crate rustc_data_structures;
 extern crate rustc_driver;
 extern crate rustc_errors;
-extern crate rustc_trans_utils;
+extern crate rustc_target;
+extern crate rustc_codegen_utils;
 extern crate syntax;
 
 // From crates.io.

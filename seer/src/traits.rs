@@ -1,17 +1,52 @@
-use rustc::traits::{self, Reveal};
+use rustc::traits::{self};
 
 use eval_context::EvalContext;
 use memory::{MemoryPointer};
 use value::{Value, PrimVal};
 
 use rustc::hir::def_id::DefId;
+use rustc::infer::InferCtxt;
 use rustc::ty::subst::Substs;
 use rustc::ty::{self, Ty};
 use rustc::ty::layout::{Size, Align, HasDataLayout};
-use syntax::codemap::DUMMY_SP;
+use rustc::traits::TraitEngine;
+use syntax::codemap::{DUMMY_SP, Span};
 use syntax::ast;
 
 use error::{EvalResult, EvalError};
+
+
+fn drain_fulfillment_cx_or_panic<'a, 'gcx, 'tcx, T>(ifcx: &InferCtxt<'a, 'gcx, 'tcx>,
+                                                    span: Span,
+                                                    fulfill_cx: &mut traits::FulfillmentContext<'tcx>,
+                                                    result: &T)
+                                                    -> T::Lifted
+    where T: ty::TypeFoldable<'tcx> + ty::Lift<'gcx>
+{
+    debug!("drain_fulfillment_cx_or_panic()");
+
+    // In principle, we only need to do this so long as `result`
+    // contains unbound type parameters. It could be a slight
+    // optimization to stop iterating early.
+    match fulfill_cx.select_all_or_error(ifcx) {
+        Ok(()) => { }
+        Err(errors) => {
+            span_bug!(span, "Encountered errors `{:?}` resolving bounds after type-checking",
+                      errors);
+            }
+        }
+
+    let result = ifcx.resolve_type_vars_if_possible(result);
+    let result = ifcx.tcx.erase_regions(&result);
+
+    match ifcx.tcx.lift_to_global(&result) {
+        Some(result) => result,
+        None => {
+            span_bug!(span, "Uninferred types/regions in `{:?}`", result);
+        }
+    }
+}
+
 
 impl<'a, 'tcx> EvalContext<'a, 'tcx> {
 
@@ -23,7 +58,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
 
             let obligation = traits::Obligation::new(
                 traits::ObligationCause::misc(DUMMY_SP, ast::DUMMY_NODE_ID),
-                ty::ParamEnv::empty(Reveal::All),
+                ty::ParamEnv::empty(),
                 trait_ref.to_poly_trait_predicate(),
             );
             let selection = selcx.select(&obligation).unwrap().unwrap();
@@ -34,7 +69,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             let vtable = selection.map(|predicate| {
                 fulfill_cx.register_predicate_obligation(&infcx, predicate);
             });
-            infcx.drain_fulfillment_cx_or_panic(DUMMY_SP, &mut fulfill_cx, &vtable)
+            drain_fulfillment_cx_or_panic(&infcx, DUMMY_SP, &mut fulfill_cx, &vtable)
         })
     }
 
@@ -103,10 +138,10 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         substs: &'tcx Substs<'tcx>,
     ) -> ty::Instance<'tcx> {
         if let Some(trait_id) = self.tcx.trait_of_item(def_id) {
-            let trait_ref = ty::Binder(ty::TraitRef::new(trait_id, substs));
+            let trait_ref = ty::Binder::bind(ty::TraitRef::new(trait_id, substs));
             let vtable = self.fulfill_obligation(trait_ref);
             if let traits::VtableImpl(vtable_impl) = vtable {
-                let name = self.tcx.item_name(def_id);
+                let name = self.tcx.item_name(def_id).as_str();
                 let assoc_const_opt = self.tcx.associated_items(vtable_impl.impl_def_id)
                     .find(|item| item.kind == ty::AssociatedKind::Const && item.name == name);
                 if let Some(assoc_const) = assoc_const_opt {

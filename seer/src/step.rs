@@ -6,7 +6,6 @@ use rustc::hir::def_id::DefId;
 use rustc::hir;
 use rustc::mir::visit::{Visitor, PlaceContext};
 use rustc::mir;
-use rustc::traits::Reveal;
 use rustc::ty::{subst, self};
 use rustc::middle::const_val::ConstVal;
 
@@ -102,6 +101,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 // TODO
             }
 
+            UserAssertTy(..) => {}
             EndRegion(..) => {}
 
             // Defined to do nothing. These are added by optimization passes, to avoid changing the
@@ -159,7 +159,7 @@ impl<'a, 'b, 'tcx> ConstantExtractor<'a, 'b, 'tcx> {
             let mutable = !shared ||
                 !mir.return_ty().is_freeze(
                     this.ecx.tcx,
-                    ty::ParamEnv::empty(Reveal::All),
+                    ty::ParamEnv::empty(),
                     span);
             let cleanup = StackPopCleanup::MarkStatic(mutable);
             let name = ty::tls::with(|tcx| tcx.item_path_str(def_id));

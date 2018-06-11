@@ -8,6 +8,13 @@ use value::{PrimVal, PrimValKind};
 use format_executor::DebugFormatter;
 
 #[derive(Debug, Clone, Copy)]
+pub enum NumericIntrinsic {
+    Ctpop,
+    Ctlz,
+    Cttz,
+}
+
+#[derive(Debug, Clone, Copy)]
 enum VarType {
     Bool,
     BitVec8,
@@ -91,6 +98,13 @@ pub enum Constraint {
 
     Compare { op: mir::BinOp, kind: PrimValKind, lhs: PrimVal, rhs: PrimVal, },
 
+    NumericIntrinsic {
+        operator: NumericIntrinsic,
+        kind: PrimValKind,
+        operand: PrimVal,
+        lhs: PrimVal,
+    },
+
     // lhs = if discriminant then then_branch else else_branch
     IfThenElse {
         discriminant: PrimVal,
@@ -137,6 +151,17 @@ impl Constraint {
         lhs: PrimVal,
     ) -> Self {
         Constraint::Unop {
+            operator, kind, operand, lhs,
+        }
+    }
+
+    pub fn new_intrinsic(
+        operator: NumericIntrinsic,
+        kind: PrimValKind,
+        operand: PrimVal,
+        lhs: PrimVal,
+    ) -> Self {
+        Constraint::NumericIntrinsic {
             operator, kind, operand, lhs,
         }
     }
@@ -263,6 +288,29 @@ impl<'tcx> ConstraintContext<'tcx> {
 
         let primval = PrimVal::Abstract(buffer);
         let constraint = Constraint::new_unop(un_op, kind, val, primval);
+
+        self.push_constraint(constraint);
+
+        primval
+    }
+
+    /// Creates a fresh abstract PrimVal `X` and adds a constraint
+    /// `X == intrinsic(val)`. Returns `X`.
+    pub fn add_intrinsic_constraint(
+        &mut self,
+        op: NumericIntrinsic,
+        val: PrimVal,
+        kind: PrimValKind) -> PrimVal {
+
+        let num_bytes = kind.num_bytes();
+
+        let mut buffer = [SByte::Concrete(0); 8];
+        for idx in 0..num_bytes {
+            buffer[idx] = SByte::Abstract(self.allocate_abstract_var(VarType::BitVec8));
+        }
+
+        let primval = PrimVal::Abstract(buffer);
+        let constraint = Constraint::new_intrinsic(op, kind, val, primval);
 
         self.push_constraint(constraint);
 
@@ -492,6 +540,15 @@ impl<'tcx> ConstraintContext<'tcx> {
                         self.primval_to_ast(&ctx, operand, kind)))
             }
 
+            Constraint::NumericIntrinsic { operator, kind, lhs, operand, .. } => {
+                self.primval_to_ast(&ctx, lhs, kind)._eq(
+                    &self.mir_intrinsic_to_ast(
+                        &ctx,
+                        operator,
+                        self.primval_to_ast(&ctx, operand, kind),
+                        kind))
+            }
+
             Constraint::Compare { op, lhs, rhs, kind, .. } => {
                 // TODO(cleanup) this duplicates some functionality of mir_binop_to_ast().
                 // Can we consolidate?
@@ -680,6 +737,49 @@ impl<'tcx> ConstraintContext<'tcx> {
         match operator {
             mir::UnOp::Not => val.not(),
             mir::UnOp::Neg => val.bvneg(),
+        }
+    }
+
+    fn mir_intrinsic_to_ast<'a>(
+        &self,
+        ctx: &'a z3::Context,
+        operator: NumericIntrinsic,
+        val: z3::Ast<'a>,
+        kind: PrimValKind)
+        -> z3::Ast<'a>
+    {
+        match operator {
+            NumericIntrinsic::Ctpop => {
+                // no magic in here, just mask each bit and sum them
+                // this avoids branching (ite)
+                let num_bits = kind.num_bytes() as u32 * 8;
+                let zero = z3::Ast::bv_from_u64(&ctx, 0, num_bits);
+                let one = z3::Ast::bv_from_u64(&ctx, 1, num_bits);
+                (0..num_bits)
+                    .map(|idx| z3::Ast::bv_from_u64(&ctx, idx as u64, num_bits))
+                    .fold(zero, |r, idx| r.bvadd(&val.bvlshr(&idx).bvand(&one)))
+            },
+            NumericIntrinsic::Ctlz => {
+                // from http://aggregate.org/MAGIC/#Leading%20Zero%20Count
+                // ctlz(x) = bits - ones(z) where
+                // z = x | x >> 1 | x >> 2 | x >> 3 | ... | x >> num_bits - 1
+                let num_bits = kind.num_bytes() as u32 * 8;
+                let zero = z3::Ast::bv_from_u64(&ctx, 0, num_bits);
+                let z = (0..num_bits)
+                    .map(|idx| z3::Ast::bv_from_u64(&ctx, idx as u64, num_bits))
+                    .fold(zero, |x, idx| x.bvor(&val.bvlshr(&idx)));
+
+                let ones = self.mir_intrinsic_to_ast(ctx, NumericIntrinsic::Ctpop, z, kind);
+                z3::Ast::bv_from_u64(&ctx, num_bits as u64, num_bits).bvsub(&ones)
+            },
+            NumericIntrinsic::Cttz => {
+                // from http://aggregate.org/MAGIC/#Trailing%20Zero%20Count
+                // cttz(x) = ones((x & (−x)) − 1)
+                let num_bits = kind.num_bytes() as u32 * 8;
+                let one = z3::Ast::bv_from_u64(&ctx, 1, num_bits);
+                let z = val.bvand(&val.bvneg()).bvsub(&one);
+                self.mir_intrinsic_to_ast(ctx, NumericIntrinsic::Ctpop, z, kind)
+            },
         }
     }
 }
