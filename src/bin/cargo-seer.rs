@@ -146,7 +146,7 @@ pub fn main() {
         // this check ensures that dependencies are built but not linted and the final
         // crate is
         // linted but not built
-        let seer_enabled = env::args().any(|s| s == "-Zno-trans");
+        let seer_enabled = env::args().any(|s| s == "--emit=dep-info,metadata");
 
         let mut command = if seer_enabled {
             let mut path = std::env::current_exe().expect("current executable path invalid");
@@ -180,7 +180,7 @@ fn process<I>(old_args: I) -> Result<(), i32>
     if !found_dashes {
         args.push("--".to_owned());
     }
-    args.push("-Zno-trans".to_owned());
+    args.push("--emit=dep-info,metadata".to_owned());
 
     let path = std::env::current_exe().expect("current executable path invalid");
     let exit_status = std::process::Command::new("cargo")
