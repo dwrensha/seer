@@ -96,6 +96,10 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             StorageLive(_) |
             StorageDead(_) => {}
 
+            // No dynamic semantics attached to `ReadForMatch`; MIR
+            // interpreter is solely intended for borrowck'ed code.
+            ReadForMatch(..) => {}
+
             // Validity checks.
             Validate(_op, ref _lvalues) => {
                 // TODO

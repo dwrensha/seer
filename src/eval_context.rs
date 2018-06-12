@@ -275,15 +275,16 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         Ok(Value::ByValPair(PrimVal::Ptr(ptr), PrimVal::from_u128(s.len() as u128)))
     }
 
-    fn rustc_primval_to_primval(&mut self, primval: mir::interpret::PrimVal) -> EvalResult<'tcx, PrimVal> {
+    fn rustc_primval_to_primval(&mut self, primval: mir::interpret::Scalar) -> EvalResult<'tcx, PrimVal> {
         match primval {
-            mir::interpret::PrimVal::Bytes(b) => {
-                Ok(PrimVal::Bytes(b))
-            }
-            mir::interpret::PrimVal::Undef => {
+            // TODO actually handle the partially-defined case
+            mir::interpret::Scalar::Bits { defined: 0, bits: _} => {
                 Ok(PrimVal::Undef)
             }
-            mir::interpret::PrimVal::Ptr(ptr) => {
+            mir::interpret::Scalar::Bits { defined: _, bits: b} => {
+                Ok(PrimVal::Bytes(b))
+            }
+            mir::interpret::Scalar::Ptr(ptr) => {
                 let EvalContext { ref mut memory, ref tcx, .. } = *self;
                 Ok(PrimVal::Ptr(memory.get_rustc_allocation(tcx, ptr)?))
             }
@@ -304,10 +305,10 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             ConstVal::Value(mir::interpret::ConstValue::ByRef(..)) => {
                 unimplemented!()
             }
-            ConstVal::Value(mir::interpret::ConstValue::ByVal(prim_val)) => {
+            ConstVal::Value(mir::interpret::ConstValue::Scalar(prim_val)) => {
                 Value::ByVal(self.rustc_primval_to_primval(prim_val)?)
             }
-            ConstVal::Value(mir::interpret::ConstValue::ByValPair(p1, p2)) => {
+            ConstVal::Value(mir::interpret::ConstValue::ScalarPair(p1, p2)) => {
                 Value::ByValPair(self.rustc_primval_to_primval(p1)?,
                                  self.rustc_primval_to_primval(p2)?)
             }
@@ -1189,8 +1190,8 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                         match scalar.value {
                             Int(i, false) => PrimValKind::from_uint_size(i.size().bytes()),
                             Int(i, true) => PrimValKind::from_int_size(i.size().bytes()),
-                            F32 => PrimValKind::F32,
-                            F64 => PrimValKind::F64,
+                            Float(::rustc_target::abi::FloatTy::F32) => PrimValKind::F32,
+                            Float(::rustc_target::abi::FloatTy::F64) => PrimValKind::F64,
                             Pointer => PrimValKind::Ptr,
                         }
                     }

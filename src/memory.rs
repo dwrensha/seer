@@ -4,6 +4,7 @@ use std::{fmt, iter, ptr, mem, io};
 
 use rustc::{ty, mir};
 use rustc::ty::layout::{self, TargetDataLayout};
+use rustc::mir::interpret::{AllocType};
 
 use constraints::ConstraintContext;
 use error::{EvalError, EvalResult};
@@ -298,51 +299,48 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
         Ok(MemoryPointer::new(id, 0))
     }
 
-    pub fn get_rustc_allocation(&mut self, tcx: &ty::TyCtxt<'a, 'tcx, 'tcx>, ptr: mir::interpret::MemoryPointer)
+    pub fn get_rustc_allocation(&mut self, tcx: &ty::TyCtxt<'a, 'tcx, 'tcx>, ptr: mir::interpret::Pointer)
                                 -> EvalResult<'tcx, MemoryPointer>
     {
         if self.rustc_allocations.contains_key(&ptr.alloc_id) {
             Ok(MemoryPointer::new(AllocId(self.rustc_allocations[&ptr.alloc_id].0), ptr.offset.bytes()))
         } else {
-            let static_ = tcx
-                .interpret_interner
-                .get_static(ptr.alloc_id);
+            match tcx.alloc_map.lock().get(ptr.alloc_id) {
+                None => panic!("missing allocation {:?}", ptr.alloc_id),
+                Some(AllocType::Static(_)) => unimplemented!(),
+                Some(AllocType::Function(_)) => unimplemented!(),
+                Some(AllocType::Memory(alloc)) => {
+                    let size = alloc.bytes.len() as u64;
+                    let static_kind = match alloc.runtime_mutability {
+                        ::syntax::ast::Mutability::Mutable =>  StaticKind::Mutable,
+                        ::syntax::ast::Mutability::Immutable =>  StaticKind::Immutable,
+                    };
+                    let mut new_alloc = Allocation {
+                        bytes: vec![],
+                        relocations: BTreeMap::new(),
+                        undef_mask: UndefMask::new(size),
+                        align : alloc.align.abi(),
+                        static_kind,
+                    };
 
-            if let Some(_def_id) = static_ {
-                unimplemented!()
-            } else if let Some(alloc) = tcx.interpret_interner.get_alloc(ptr.alloc_id) {
-                let size = alloc.bytes.len() as u64;
-                let static_kind = match alloc.runtime_mutability {
-                    ::syntax::ast::Mutability::Mutable =>  StaticKind::Mutable,
-                    ::syntax::ast::Mutability::Immutable =>  StaticKind::Immutable,
-                };
-                let mut new_alloc = Allocation {
-                    bytes: vec![],
-                    relocations: BTreeMap::new(),
-                    undef_mask: UndefMask::new(size),
-                    align : alloc.align.abi(),
-                    static_kind,
-                };
+                    for &b in &alloc.bytes {
+                        new_alloc.bytes.push(SByte::Concrete(b));
+                    }
 
-                for &b in &alloc.bytes {
-                    new_alloc.bytes.push(SByte::Concrete(b));
+                    // XXX
+                    new_alloc.undef_mask.set_range_inbounds(0, size, true);
+
+                    for _ in alloc.relocations.iter() {
+                        // TODO
+                        unimplemented!()
+                    }
+
+                    let id = self.next_id;
+                    self.next_id.0 += 1;
+                    self.alloc_map.insert(id, new_alloc);
+                    self.rustc_allocations.insert(ptr.alloc_id, id);
+                    Ok(MemoryPointer::new(id, ptr.offset.bytes()))
                 }
-
-                // XXX
-                new_alloc.undef_mask.set_range_inbounds(0, size, true);
-
-                if !alloc.relocations.is_empty() {
-                    // TODO
-                    unimplemented!()
-                }
-
-                let id = self.next_id;
-                self.next_id.0 += 1;
-                self.alloc_map.insert(id, new_alloc);
-                self.rustc_allocations.insert(ptr.alloc_id, id);
-                Ok(MemoryPointer::new(id, ptr.offset.bytes()))
-            } else {
-                panic!("missing allocation {:?}", ptr.alloc_id);
             }
         }
     }

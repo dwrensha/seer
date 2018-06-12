@@ -1,10 +1,10 @@
 use rustc::mir;
-use rustc::ty::layout::{HasDataLayout, TyLayout};
+use rustc::ty::layout::{HasDataLayout, LayoutOf, TyLayout};
 use rustc::ty::{self, Ty, TyCtxt};
 use rustc_data_structures::indexed_vec::Idx;
 
 use error::{EvalError, EvalResult};
-use eval_context::{EvalContext};
+use eval_context::{EvalContext, ValTy};
 use memory::{MemoryPointer};
 use value::{PrimVal, PrimValKind, Value};
 
@@ -138,6 +138,49 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         }
     }
 
+    pub fn read_field(
+        &self,
+        base: Value,
+        variant: Option<usize>,
+        field: mir::Field,
+        base_ty: Ty<'tcx>,
+    ) -> EvalResult<'tcx, ValTy<'tcx>> {
+        let mut base_layout = self.layout_of(base_ty)?;
+        if let Some(variant_index) = variant {
+            base_layout = base_layout.for_variant(self, variant_index);
+        }
+        let field_index = field.index();
+        let field = base_layout.field(self, field_index)?;
+        if field.size.bytes() == 0 {
+            return Ok(ValTy {
+                value: Value::ByVal(PrimVal::Undef),
+                ty: field.ty,
+            });
+        }
+        let offset = base_layout.fields.offset(field_index);
+        let value = match base {
+            // the field covers the entire type
+            Value::ByValPair(..) |
+            Value::ByVal(_) if offset.bytes() == 0 && field.size == base_layout.size => base,
+            // extract fields from types with `ScalarPair` ABI
+            Value::ByValPair(a, b) => {
+                let val = if offset.bytes() == 0 { a } else { b };
+                Value::ByVal(val)
+            },
+            Value::ByRef(base_ptr) => {
+                let offset = base_layout.fields.offset(field_index);
+                let ptr = base_ptr.offset(offset.bytes(), self.memory.layout)?;
+                assert!(!field.is_unsized());
+                Value::ByRef(ptr)
+            },
+            Value::ByVal(val) => bug!("field access on non aggregate {:?}, {:?}", val, base_ty),
+        };
+        Ok(ValTy {
+            value,
+            ty: field.ty,
+        })
+    }
+
     fn try_read_lvalue_projection(&mut self, proj: &mir::PlaceProjection<'tcx>) -> EvalResult<'tcx, Option<Value>> {
         use rustc::mir::ProjectionElem::*;
         let base = match self.try_read_lvalue(&proj.base)? {
@@ -146,18 +189,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         };
         let base_ty = self.lvalue_ty(&proj.base);
         match proj.elem {
-            Field(field, _) => match (field.index(), base) {
-                // the only field of a struct
-                (0, Value::ByVal(val)) => Ok(Some(Value::ByVal(val))),
-                // split fat pointers, 2 element tuples, ...
-                (0...1, Value::ByValPair(a, b)) if self.get_field_count(base_ty)? == 2 => {
-                    let val = [a, b][field.index()];
-                    Ok(Some(Value::ByVal(val)))
-                },
-                // the only field of a struct is a fat pointer
-                (0, Value::ByValPair(..)) => Ok(Some(base)),
-                _ => Ok(None),
-            },
+            Field(field, _) => Ok(Some(self.read_field(base, None, field, base_ty)?.value)),
             // The NullablePointer cases should work fine, need to take care for normal enums
             Downcast(..) |
             Subslice { .. } |
@@ -258,6 +290,10 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     // in case the field covers the entire type, just return the value
                     Value::ByVal(_) if offset.bytes() == 0 &&
                                        field.size == base_layout.size => {
+                        return Ok((base, field));
+                    }
+                    Value::ByValPair(..) if offset.bytes() == 0 &&
+                                            field.size == base_layout.size => {
                         return Ok((base, field));
                     }
                     Value::ByRef { .. } |
