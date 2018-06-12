@@ -11,7 +11,7 @@ use rustc_data_structures::indexed_vec::Idx;
 use syntax::codemap::{self, DUMMY_SP};
 
 use error::{EvalError, EvalResult};
-use lvalue::{Global, GlobalId, Lvalue, LvalueExtra};
+use place::{Global, GlobalId, Place, PlaceExtra};
 use memory::{Memory, MemoryPointer};
 use value::{PrimVal, PrimValKind, Value};
 
@@ -72,14 +72,14 @@ pub struct Frame<'tcx> {
     pub span: codemap::Span,
 
     ////////////////////////////////////////////////////////////////////////////////
-    // Return lvalue and locals
+    // Return place and locals
     ////////////////////////////////////////////////////////////////////////////////
 
     /// The block to return to when returning from the current stack frame
     pub return_to_block: StackPopCleanup,
 
     /// The location where the result of the current stack frame should be written to.
-    pub return_lvalue: Lvalue<'tcx>,
+    pub return_place: Place<'tcx>,
 
     /// The list of locals for this stack frame, stored in order as
     /// `[arguments..., variables..., temporaries...]`. The locals are stored as `Value`s, which
@@ -107,7 +107,7 @@ impl <'tcx> Clone for Frame<'tcx> {
             instance: self.instance,
             span: self.span,
             return_to_block: self.return_to_block.clone(),
-            return_lvalue: self.return_lvalue,
+            return_place: self.return_place,
             locals: self.locals.clone(),
             block: self.block.clone(),
             stmt: self.stmt,
@@ -396,7 +396,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         instance: ty::Instance<'tcx>,
         span: codemap::Span,
         mir: &'tcx mir::Mir<'tcx>,
-        return_lvalue: Lvalue<'tcx>,
+        return_place: Place<'tcx>,
         return_to_block: StackPopCleanup,
     ) -> EvalResult<'tcx> {
         ::log_settings::settings().indentation += 1;
@@ -410,7 +410,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             mir,
             block: mir::START_BLOCK,
             return_to_block,
-            return_lvalue,
+            return_place,
             locals,
             span,
             instance,
@@ -427,7 +427,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
     pub(super) fn pop_stack_frame(&mut self) -> EvalResult<'tcx> {
         let frame = self.stack.pop().expect("tried to pop a stack frame, but there were none");
         match frame.return_to_block {
-            StackPopCleanup::MarkStatic(mutable) => if let Lvalue::Global(id) = frame.return_lvalue {
+            StackPopCleanup::MarkStatic(mutable) => if let Place::Global(id) = frame.return_place {
                 let global_value = self.globals.get_mut(&id)
                     .expect("global should have been cached (static)");
                 match global_value.value {
@@ -450,7 +450,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 assert!(global_value.mutable);
                 global_value.mutable = mutable;
             } else {
-                bug!("StackPopCleanup::MarkStatic on: {:?}", frame.return_lvalue);
+                bug!("StackPopCleanup::MarkStatic on: {:?}", frame.return_place);
             },
             StackPopCleanup::Goto(target) => self.goto_block(target),
             StackPopCleanup::None => {},
@@ -475,14 +475,14 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
     /// Evaluate an assignment statement.
     ///
     /// There is no separate `eval_rvalue` function. Instead, the code for handling each rvalue
-    /// type writes its results directly into the memory specified by the lvalue.
-    pub(super) fn eval_rvalue_into_lvalue(
+    /// type writes its results directly into the memory specified by the place.
+    pub(super) fn eval_rvalue_into_place(
         &mut self,
         rvalue: &mir::Rvalue<'tcx>,
-        lvalue: &mir::Place<'tcx>,
+        place: &mir::Place<'tcx>,
     ) -> EvalResult<'tcx> {
-        let dest = self.eval_lvalue(lvalue)?;
-        let dest_ty = self.lvalue_ty(lvalue);
+        let dest = self.eval_place(place)?;
+        let dest_ty = self.place_ty(place);
 
         use rustc::mir::Rvalue::*;
         match *rvalue {
@@ -518,7 +518,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                         self.write_discriminant_value(dest_ty, dest, variant_index)?;
                         layout = layout.for_variant(&self, variant_index);
                         if adt_def.is_enum() {
-                            (self.lvalue_downcast(dest, variant_index)?, active_field_index)
+                            (self.place_downcast(dest, variant_index)?, active_field_index)
                         } else {
                             (dest, active_field_index)
                         }
@@ -532,7 +532,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     // Ignore zero-sized fields.
                     if !self.type_layout(value_ty)?.is_zst() {
                         let field_index = active_field_index.unwrap_or(i);
-                        let (field_dest, _) = self.lvalue_field(dest, mir::Field::new(field_index), layout)?;
+                        let (field_dest, _) = self.place_field(dest, mir::Field::new(field_index), layout)?;
                         self.write_value(ValTy { value, ty: value_ty }, field_dest)?;
                     }
                 }
@@ -557,23 +557,23 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 }
             }
 
-            Len(ref lvalue) => {
-                let src = self.eval_lvalue(lvalue)?;
-                let ty = self.lvalue_ty(lvalue);
+            Len(ref place) => {
+                let src = self.eval_place(place)?;
+                let ty = self.place_ty(place);
                 let (_, len) = src.elem_ty_and_len(ty, self.tcx);
                 self.write_primval(dest, PrimVal::from_u128(len as u128), dest_ty)?;
             }
 
-            Ref(_, _, ref lvalue) => {
-                let src = self.eval_lvalue(lvalue)?;
+            Ref(_, _, ref place) => {
+                let src = self.eval_place(place)?;
                 let (ptr, extra) = self.force_allocation(src)?.to_ptr_and_extra();
 
                 let val = match extra {
-                    LvalueExtra::None => Value::ByVal(ptr),
-                    LvalueExtra::Length(len) => Value::ByValPair(ptr, len),
-                    LvalueExtra::Vtable(vtable) => Value::ByValPair(ptr, PrimVal::Ptr(vtable)),
-                    LvalueExtra::DowncastVariant(..) =>
-                        bug!("attempted to take a reference to an enum downcast lvalue"),
+                    PlaceExtra::None => Value::ByVal(ptr),
+                    PlaceExtra::Length(len) => Value::ByValPair(ptr, len),
+                    PlaceExtra::Vtable(vtable) => Value::ByValPair(ptr, PrimVal::Ptr(vtable)),
+                    PlaceExtra::DowncastVariant(..) =>
+                        bug!("attempted to take a reference to an enum downcast place"),
                 };
 
                 self.write_value(ValTy { value: val, ty: dest_ty }, dest)?;
@@ -676,9 +676,9 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 }
             }
 
-            Discriminant(ref lvalue) => {
-                let lval = self.eval_lvalue(lvalue)?;
-                let ty = self.lvalue_ty(lvalue);
+            Discriminant(ref place) => {
+                let lval = self.eval_place(place)?;
+                let ty = self.place_ty(place);
 
                 // TODO: Why is this mask necessary? Does the need for it indicate some kind of bug
                 // in rustc? Is there a better way to accomplish this?
@@ -804,8 +804,8 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
     pub(super) fn eval_operand(&mut self, op: &mir::Operand<'tcx>) -> EvalResult<'tcx, Value> {
         use rustc::mir::Operand::*;
         match *op {
-            Copy(ref lvalue) => self.eval_and_read_lvalue(lvalue),
-            Move(ref lvalue) => self.eval_and_read_lvalue(lvalue),
+            Copy(ref place) => self.eval_and_read_place(place),
+            Move(ref place) => self.eval_and_read_place(place),
 
             Constant(ref constant) => {
                 use rustc::mir::Literal;
@@ -828,7 +828,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
 
     pub fn read_discriminant_value(
         &mut self,
-        lvalue: Lvalue<'tcx>,
+        place: Place<'tcx>,
         ty: Ty<'tcx>,
     ) -> EvalResult<'tcx, u128> {
         let layout = self.type_layout(ty)?;
@@ -840,10 +840,10 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             layout::Variants::NicheFilling { .. } => {},
         }
 
-        let (discr_lvalue, discr) = self.lvalue_field(lvalue, mir::Field::new(0), layout)?;
-        let read_discr_lvalue = self.read_lvalue(discr_lvalue)?;
+        let (discr_place, discr) = self.place_field(place, mir::Field::new(0), layout)?;
+        let read_discr_place = self.read_place(discr_place)?;
         let raw_discr_primval = self.value_to_primval(
-            read_discr_lvalue,
+            read_discr_place,
             discr.ty)?;
         let discr_val = match layout.variants {
             layout::Variants::Single { .. } => bug!(),
@@ -878,7 +878,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
     pub(crate) fn write_discriminant_value(
         &mut self,
         dest_ty: Ty<'tcx>,
-        dest: Lvalue<'tcx>,
+        dest: Place<'tcx>,
         variant_index: usize,
     ) -> EvalResult<'tcx> {
         let layout = self.type_layout(dest_ty)?;
@@ -896,7 +896,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 let discr_val = dest_ty.ty_adt_def().unwrap()
                     .discriminant_for_variant(self.tcx, variant_index).val;
 
-                let (discr_dest, discr) = self.lvalue_field(dest, mir::Field::new(0), layout)?;
+                let (discr_dest, discr) = self.place_field(dest, mir::Field::new(0), layout)?;
                 self.write_primval(discr_dest, PrimVal::Bytes(discr_val), discr.ty)?;
             }
             layout::Variants::NicheFilling {
@@ -907,7 +907,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             } => {
                 if variant_index != dataful_variant {
                     let (niche_dest, niche) =
-                        self.lvalue_field(dest, mir::Field::new(0), layout)?;
+                        self.place_field(dest, mir::Field::new(0), layout)?;
                     let niche_value = ((variant_index - *niche_variants.start()) as u128)
                         .wrapping_add(niche_start);
                     self.write_primval(niche_dest, PrimVal::Bytes(niche_value), niche.ty)?;
@@ -931,14 +931,14 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
 
     pub(super) fn force_allocation(
         &mut self,
-        lvalue: Lvalue<'tcx>,
-    ) -> EvalResult<'tcx, Lvalue<'tcx>> {
-        let new_lvalue = match lvalue {
-            Lvalue::Local { frame, local } => {
+        place: Place<'tcx>,
+    ) -> EvalResult<'tcx, Place<'tcx>> {
+        let new_place = match place {
+            Place::Local { frame, local } => {
                 // -1 since we don't store the return value
                 match self.stack[frame].locals[local.index() - 1] {
                     Value::ByRef(ptr) => {
-                        Lvalue::from_ptr(ptr)
+                        Place::from_ptr(ptr)
                     },
                     val => {
                         let ty = self.stack[frame].mir.local_decls[local].ty;
@@ -947,15 +947,15 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                         let ptr = self.alloc_ptr_with_substs(ty, substs)?;
                         self.stack[frame].locals[local.index() - 1] = Value::ByRef(ptr);
                         self.write_value_to_ptr(val, PrimVal::Ptr(ptr), ty)?;
-                        Lvalue::from_ptr(ptr)
+                        Place::from_ptr(ptr)
                     }
                 }
             }
-            Lvalue::Ptr { .. } => lvalue,
-            Lvalue::Global(cid) => {
+            Place::Ptr { .. } => place,
+            Place::Global(cid) => {
                 let global_val = *self.globals.get(&cid).expect("global not cached");
                 match global_val.value {
-                    Value::ByRef(ptr) => Lvalue::from_ptr(ptr),
+                    Value::ByRef(ptr) => Place::from_ptr(ptr),
                     _ => {
                         let ptr = self.alloc_ptr_with_substs(global_val.ty, cid.instance.substs)?;
                         self.memory.mark_static(ptr.alloc_id);
@@ -969,12 +969,12 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                             value: Value::ByRef(ptr),
                             .. global_val
                         };
-                        Lvalue::from_ptr(ptr)
+                        Place::from_ptr(ptr)
                     },
                 }
             }
         };
-        Ok(new_lvalue)
+        Ok(new_place)
     }
 
     /// ensures this Value is not a ByRef
@@ -1000,7 +1000,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
 
     pub(super) fn write_primval(
         &mut self,
-        dest: Lvalue<'tcx>,
+        dest: Place<'tcx>,
         val: PrimVal,
         dest_ty: Ty<'tcx>,
     ) -> EvalResult<'tcx> {
@@ -1010,10 +1010,10 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
     pub(super) fn write_value(
         &mut self,
         ValTy { value: src_val, ty: dest_ty } : ValTy<'tcx>,
-        dest: Lvalue<'tcx>,
+        dest: Place<'tcx>,
     ) -> EvalResult<'tcx> {
         match dest {
-            Lvalue::Global(cid) => {
+            Place::Global(cid) => {
                 let dest = *self.globals.get_mut(&cid).expect("global should be cached");
                 if !dest.mutable {
                     return Err(EvalError::ModifiedConstantMemory);
@@ -1027,12 +1027,12 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 self.write_value_possibly_by_val(src_val, write_dest, dest.value, dest_ty)
             },
 
-            Lvalue::Ptr { ptr, extra } => {
-                assert_eq!(extra, LvalueExtra::None);
+            Place::Ptr { ptr, extra } => {
+                assert_eq!(extra, PlaceExtra::None);
                 self.write_value_to_ptr(src_val, ptr, dest_ty)
             }
 
-            Lvalue::Local { frame, local } => {
+            Place::Local { frame, local } => {
                 let dest = self.stack[frame].get_local(local)?;
                 self.write_value_possibly_by_val(
                     src_val,
@@ -1371,7 +1371,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         &mut self,
         src: Value,
         src_ty: Ty<'tcx>,
-        dest: Lvalue<'tcx>,
+        dest: Place<'tcx>,
         dest_ty: Ty<'tcx>,
         sty: Ty<'tcx>,
         dty: Ty<'tcx>,
@@ -1408,7 +1408,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         &mut self,
         src: Value,
         src_ty: Ty<'tcx>,
-        dest: Lvalue<'tcx>,
+        dest: Place<'tcx>,
         dest_ty: Ty<'tcx>,
     ) -> EvalResult<'tcx> {
         match (&src_ty.sty, &dest_ty.sty) {
@@ -1460,7 +1460,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     if src_fty == dst_fty {
                         self.copy(PrimVal::Ptr(src_f_ptr), PrimVal::Ptr(dst_f_ptr), src_fty)?;
                     } else {
-                        self.unsize_into(Value::ByRef(src_f_ptr), src_fty, Lvalue::from_ptr(dst_f_ptr), dst_fty)?;
+                        self.unsize_into(Value::ByRef(src_f_ptr), src_fty, Place::from_ptr(dst_f_ptr), dst_fty)?;
                     }
                 }
                 Ok(())
@@ -1469,8 +1469,8 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         }
     }
 
-    pub(super) fn dump_local(&self, lvalue: Lvalue<'tcx>) {
-        if let Lvalue::Local { frame, local } = lvalue {
+    pub(super) fn dump_local(&self, place: Place<'tcx>) {
+        if let Place::Local { frame, local } = place {
             let mut allocs = Vec::new();
             let mut msg = format!("{:?}", local);
             let last_frame = self.stack.len() - 1;

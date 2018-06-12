@@ -5,7 +5,7 @@ use rustc::ty::{self, Ty};
 
 use error::{EvalError, EvalResult};
 use eval_context::{EvalContext, ValTy};
-use lvalue::{Lvalue, LvalueExtra};
+use place::{Place, PlaceExtra};
 use memory::{MemoryPointer};
 use value::{PrimVal, PrimValKind, Value};
 
@@ -14,7 +14,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         &mut self,
         instance: ty::Instance<'tcx>,
         args: &[mir::Operand<'tcx>],
-        dest: Lvalue<'tcx>,
+        dest: Place<'tcx>,
         dest_ty: Ty<'tcx>,
         dest_layout: ty::layout::TyLayout<'tcx>,
         target: mir::BasicBlock,
@@ -93,7 +93,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     Value::ByValPair(..) => bug!("atomic_xchg doesn't work with nonprimitives"),
                 };
                 self.write_primval(dest, old, ty)?;
-                self.write_primval(Lvalue::from_ptr(ptr), change, ty)?;
+                self.write_primval(Place::from_ptr(ptr), change, ty)?;
             }
 
             _ if intrinsic_name.starts_with("atomic_cxchg") => {
@@ -110,7 +110,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 let (val, _) = self.binary_op(mir::BinOp::Eq, old, ty, expect_old, ty)?;
                 let dest = self.force_allocation(dest)?.to_ptr()?;
                 self.write_pair_to_ptr(old, val, dest, dest_ty)?;
-                self.write_primval(Lvalue::from_ptr(ptr), change, ty)?;
+                self.write_primval(Place::from_ptr(ptr), change, ty)?;
             }
 
             "atomic_or" | "atomic_or_acq" | "atomic_or_rel" | "atomic_or_acqrel" | "atomic_or_relaxed" |
@@ -138,7 +138,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 };
                 // FIXME: what do atomics do on overflow?
                 let (val, _) = self.binary_op(op, old, ty, change, ty)?;
-                self.write_primval(Lvalue::from_ptr(ptr), val, ty)?;
+                self.write_primval(Place::from_ptr(ptr), val, ty)?;
             },
 
             "breakpoint" => unimplemented!(), // halt miri
@@ -178,7 +178,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             "discriminant_value" => {
                 let ty = instance.substs.type_at(0);
                 let adt_ptr = arg_vals[0].read_ptr(&self.memory)?.to_ptr()?;
-                let discr_val = self.read_discriminant_value(Lvalue::from_ptr(adt_ptr), ty)?;
+                let discr_val = self.read_discriminant_value(Place::from_ptr(adt_ptr), ty)?;
                 self.write_primval(dest, PrimVal::Bytes(discr_val), dest_ty)?;
             }
 
@@ -285,10 +285,10 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     Ok(zero_val)
                 };
                 match dest {
-                    Lvalue::Local { frame, local } => self.modify_local(frame, local, init)?,
-                    Lvalue::Ptr { ptr, extra: LvalueExtra::None } => self.memory.write_repeat(ptr.to_ptr()?, 0, size)?,
-                    Lvalue::Ptr { .. } => bug!("init intrinsic tried to write to fat ptr target"),
-                    Lvalue::Global(cid) => self.modify_global(cid, init)?,
+                    Place::Local { frame, local } => self.modify_local(frame, local, init)?,
+                    Place::Ptr { ptr, extra: PlaceExtra::None } => self.memory.write_repeat(ptr.to_ptr()?, 0, size)?,
+                    Place::Ptr { .. } => bug!("init intrinsic tried to write to fat ptr target"),
+                    Place::Global(cid) => self.modify_global(cid, init)?,
                 }
             }
 
@@ -451,11 +451,11 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     }
                 };
                 match dest {
-                    Lvalue::Local { frame, local } => self.modify_local(frame, local, uninit)?,
-                    Lvalue::Ptr { ptr, extra: LvalueExtra::None } =>
+                    Place::Local { frame, local } => self.modify_local(frame, local, uninit)?,
+                    Place::Ptr { ptr, extra: PlaceExtra::None } =>
                         self.memory.mark_definedness(ptr, size, false)?,
-                    Lvalue::Ptr { .. } => bug!("uninit intrinsic tried to write to fat ptr target"),
-                    Lvalue::Global(cid) => self.modify_global(cid, uninit)?,
+                    Place::Ptr { .. } => bug!("uninit intrinsic tried to write to fat ptr target"),
+                    Place::Global(cid) => self.modify_global(cid, uninit)?,
                 }
             }
 

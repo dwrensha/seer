@@ -9,26 +9,26 @@ use memory::{MemoryPointer};
 use value::{PrimVal, PrimValKind, Value};
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum Lvalue<'tcx> {
-    /// An lvalue referring to a value allocated in the `Memory` system.
+pub enum Place<'tcx> {
+    /// A place referring to a value allocated in the `Memory` system.
     Ptr {
         ptr: PrimVal,
-        extra: LvalueExtra,
+        extra: PlaceExtra,
     },
 
-    /// An lvalue referring to a value on the stack. Represented by a stack frame index paired with
+    /// A place referring to a value on the stack. Represented by a stack frame index paired with
     /// a Mir local index.
     Local {
         frame: usize,
         local: mir::Local,
     },
 
-    /// An lvalue referring to a global
+    /// A place referring to a global
     Global(GlobalId<'tcx>),
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum LvalueExtra {
+pub enum PlaceExtra {
     None,
     Length(PrimVal),
     Vtable(MemoryPointer),
@@ -58,31 +58,31 @@ pub struct Global<'tcx> {
     pub(super) ty: Ty<'tcx>,
 }
 
-impl<'tcx> Lvalue<'tcx> {
-    /// Produces an Lvalue that will error if attempted to be read from
+impl<'tcx> Place<'tcx> {
+    /// Produces an Place that will error if attempted to be read from
     pub fn undef() -> Self {
         Self::from_primval_ptr(PrimVal::Undef)
     }
 
     fn from_primval_ptr(ptr: PrimVal) -> Self {
-        Lvalue::Ptr { ptr, extra: LvalueExtra::None }
+        Place::Ptr { ptr, extra: PlaceExtra::None }
     }
 
     pub fn from_ptr(ptr: MemoryPointer) -> Self {
         Self::from_primval_ptr(PrimVal::Ptr(ptr))
     }
 
-    pub(super) fn to_ptr_and_extra(self) -> (PrimVal, LvalueExtra) {
+    pub(super) fn to_ptr_and_extra(self) -> (PrimVal, PlaceExtra) {
         match self {
-            Lvalue::Ptr { ptr, extra } => (ptr, extra),
-            _ => bug!("to_ptr_and_extra: expected Lvalue::Ptr, got {:?}", self),
+            Place::Ptr { ptr, extra } => (ptr, extra),
+            _ => bug!("to_ptr_and_extra: expected Place::Ptr, got {:?}", self),
 
         }
     }
 
     pub(super) fn to_ptr(self) -> EvalResult<'tcx, MemoryPointer> {
         let (ptr, extra) = self.to_ptr_and_extra();
-        assert_eq!(extra, LvalueExtra::None);
+        assert_eq!(extra, PlaceExtra::None);
         ptr.to_ptr()
     }
 
@@ -92,13 +92,13 @@ impl<'tcx> Lvalue<'tcx> {
 
             ty::TySlice(elem) => {
                 match self {
-                    Lvalue::Ptr { extra: LvalueExtra::Length(len), .. } => {
+                    Place::Ptr { extra: PlaceExtra::Length(len), .. } => {
                         match len {
                             PrimVal::Bytes(n) => (elem, n as u64),
                             _ => unimplemented!(),
                         }
                     }
-                    _ => bug!("elem_ty_and_len of a TySlice given non-slice lvalue: {:?}", self),
+                    _ => bug!("elem_ty_and_len of a TySlice given non-slice place: {:?}", self),
                 }
             }
 
@@ -119,11 +119,11 @@ impl<'tcx> Global<'tcx> {
 }
 
 impl<'a, 'tcx> EvalContext<'a, 'tcx> {
-    /// Reads a value from the lvalue without going through the intermediate step of obtaining
-    /// a `miri::Lvalue`
-    pub fn try_read_lvalue(&mut self, lvalue: &mir::Place<'tcx>) -> EvalResult<'tcx, Option<Value>> {
+    /// Reads a value from the place without going through the intermediate step of obtaining
+    /// a `miri::Place`
+    pub fn try_read_place(&mut self, place: &mir::Place<'tcx>) -> EvalResult<'tcx, Option<Value>> {
         use rustc::mir::Place::*;
-        match *lvalue {
+        match *place {
             // Might allow this in the future, right now there's no way to do this from Rust code anyway
             Local(mir::RETURN_PLACE) => Err(EvalError::ReadFromReturnPointer),
             // Directly reading a local will always succeed
@@ -134,7 +134,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 let cid = GlobalId { instance, promoted: None };
                 Ok(Some(self.globals.get(&cid).expect("global not cached").value))
             },
-            Projection(ref proj) => self.try_read_lvalue_projection(proj),
+            Projection(ref proj) => self.try_read_place_projection(proj),
         }
     }
 
@@ -181,13 +181,13 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         })
     }
 
-    fn try_read_lvalue_projection(&mut self, proj: &mir::PlaceProjection<'tcx>) -> EvalResult<'tcx, Option<Value>> {
+    fn try_read_place_projection(&mut self, proj: &mir::PlaceProjection<'tcx>) -> EvalResult<'tcx, Option<Value>> {
         use rustc::mir::ProjectionElem::*;
-        let base = match self.try_read_lvalue(&proj.base)? {
+        let base = match self.try_read_place(&proj.base)? {
             Some(base) => base,
             None => return Ok(None),
         };
-        let base_ty = self.lvalue_ty(&proj.base);
+        let base_ty = self.place_ty(&proj.base);
         match proj.elem {
             Field(field, _) => Ok(Some(self.read_field(base, None, field, base_ty)?.value)),
             // The NullablePointer cases should work fine, need to take care for normal enums
@@ -195,85 +195,85 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             Subslice { .. } |
             // reading index 0 or index 1 from a ByVal or ByVal pair could be optimized
             ConstantIndex { .. } | Index(_) |
-            // No way to optimize this projection any better than the normal lvalue path
+            // No way to optimize this projection any better than the normal place path
             Deref => Ok(None),
         }
     }
 
-    pub(super) fn eval_and_read_lvalue(&mut self, lvalue: &mir::Place<'tcx>) -> EvalResult<'tcx, Value> {
-        let ty = self.lvalue_ty(lvalue);
+    pub(super) fn eval_and_read_place(&mut self, place: &mir::Place<'tcx>) -> EvalResult<'tcx, Value> {
+        let ty = self.place_ty(place);
         // Shortcut for things like accessing a fat pointer's field,
-        // which would otherwise (in the `eval_lvalue` path) require moving a `ByValPair` to memory
-        // and returning an `Lvalue::Ptr` to it
-        if let Some(val) = self.try_read_lvalue(lvalue)? {
+        // which would otherwise (in the `eval_place` path) require moving a `ByValPair` to memory
+        // and returning an `Place::Ptr` to it
+        if let Some(val) = self.try_read_place(place)? {
             return Ok(val);
         }
-        let lvalue = self.eval_lvalue(lvalue)?;
+        let place = self.eval_place(place)?;
 
         if ty.is_never() {
             return Err(EvalError::Unreachable);
         }
 
-        match lvalue {
-            Lvalue::Ptr { ptr, extra } => {
-                assert_eq!(extra, LvalueExtra::None);
+        match place {
+            Place::Ptr { ptr, extra } => {
+                assert_eq!(extra, PlaceExtra::None);
                 Ok(Value::ByRef(ptr.to_ptr()?))
             }
-            Lvalue::Local { frame, local } => {
+            Place::Local { frame, local } => {
                 self.stack[frame].get_local(local)
             }
-            Lvalue::Global(cid) => {
+            Place::Global(cid) => {
                 Ok(self.globals.get(&cid).expect("global not cached").value)
             }
         }
     }
 
-    pub fn read_lvalue(&self, lvalue: Lvalue) -> EvalResult<'tcx, Value> {
-        match lvalue {
-            Lvalue::Ptr { ptr, extra } => {
-                assert_eq!(extra, LvalueExtra::None);
+    pub fn read_place(&self, place: Place) -> EvalResult<'tcx, Value> {
+        match place {
+            Place::Ptr { ptr, extra } => {
+                assert_eq!(extra, PlaceExtra::None);
                 Ok(Value::ByRef(ptr.to_ptr()?))
             }
-            Lvalue::Local { frame, local } => self.stack[frame].get_local(local),
-            Lvalue::Global(cid) => {
+            Place::Local { frame, local } => self.stack[frame].get_local(local),
+            Place::Global(cid) => {
                 Ok(self.globals.get(&cid).expect("global not cached").value)
             }
         }
     }
 
-    pub(super) fn eval_lvalue(&mut self, mir_lvalue: &mir::Place<'tcx>) -> EvalResult<'tcx, Lvalue<'tcx>> {
+    pub(super) fn eval_place(&mut self, mir_place: &mir::Place<'tcx>) -> EvalResult<'tcx, Place<'tcx>> {
         use rustc::mir::Place::*;
-        let lvalue = match *mir_lvalue {
-            Local(mir::RETURN_PLACE) => self.frame().return_lvalue,
-            Local(local) => Lvalue::Local { frame: self.stack.len() - 1, local },
+        let place = match *mir_place {
+            Local(mir::RETURN_PLACE) => self.frame().return_place,
+            Local(local) => Place::Local { frame: self.stack.len() - 1, local },
 
             Static(ref static_) => {
                 let instance = ty::Instance::mono(self.tcx, static_.def_id);
-                Lvalue::Global(GlobalId { instance, promoted: None })
+                Place::Global(GlobalId { instance, promoted: None })
             }
 
             Projection(ref proj) => {
-                let ty = self.lvalue_ty(&proj.base);
-                let lvalue = self.eval_lvalue(&proj.base)?;
-                return self.eval_lvalue_projection(lvalue, ty, &proj.elem);
+                let ty = self.place_ty(&proj.base);
+                let place = self.eval_place(&proj.base)?;
+                return self.eval_place_projection(place, ty, &proj.elem);
             }
         };
 
         if log_enabled!(::log::Level::Trace) {
-            self.dump_local(lvalue);
+            self.dump_local(place);
         }
 
-        Ok(lvalue)
+        Ok(place)
     }
 
-    pub fn lvalue_field(
+    pub fn place_field(
         &mut self,
-        base: Lvalue<'tcx>,
+        base: Place<'tcx>,
         field: mir::Field,
         base_layout: TyLayout<'tcx>,
-    ) -> EvalResult<'tcx, (Lvalue<'tcx>, TyLayout<'tcx>)> {
+    ) -> EvalResult<'tcx, (Place<'tcx>, TyLayout<'tcx>)> {
         let base_layout: TyLayout<'tcx> = match base {
-            Lvalue::Ptr { extra: LvalueExtra::DowncastVariant(n), .. } => {
+            Place::Ptr { extra: PlaceExtra::DowncastVariant(n), .. } => {
                 base_layout.for_variant(&self, n)
             }
             _ => base_layout,
@@ -284,8 +284,8 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
 
         // Do not allocate in trivial cases
         let (base_ptr, base_extra) = match base {
-            Lvalue::Ptr { ptr, extra } => (ptr, extra),
-            Lvalue::Local { frame, local } => {
+            Place::Ptr { ptr, extra } => (ptr, extra),
+            Place::Local { frame, local } => {
                 match self.stack[frame].get_local(local)? {
                     // in case the field covers the entire type, just return the value
                     Value::ByVal(_) if offset.bytes() == 0 &&
@@ -301,13 +301,13 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     Value::ByVal(_) => self.force_allocation(base)?.to_ptr_and_extra(),
                 }
             }
-            Lvalue::Global(_cid) => {
+            Place::Global(_cid) => {
                 self.force_allocation(base)?.to_ptr_and_extra()
             }
         };
 
         let offset = match base_extra {
-            LvalueExtra::Vtable(tab) => {
+            PlaceExtra::Vtable(tab) => {
                 let (_, align) = self.size_and_align_of_dst(
                     base_layout.ty,
                     base_ptr.to_ptr()?.to_value_with_vtable(tab),
@@ -323,48 +323,48 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         //ptr.aligned &= !base_layout.is_packed();
 
         let extra = if !field.is_unsized() {
-            LvalueExtra::None
+            PlaceExtra::None
         } else {
             match base_extra {
-                LvalueExtra::None => bug!("expected fat pointer"),
-                LvalueExtra::DowncastVariant(..) => {
+                PlaceExtra::None => bug!("expected fat pointer"),
+                PlaceExtra::DowncastVariant(..) => {
                     bug!("Rust doesn't support unsized fields in enum variants")
                 }
-                LvalueExtra::Vtable(_) |
-                LvalueExtra::Length(_) => {}
+                PlaceExtra::Vtable(_) |
+                PlaceExtra::Length(_) => {}
             }
             base_extra
         };
 
-        Ok((Lvalue::Ptr { ptr: PrimVal::Ptr(ptr), extra }, field))
+        Ok((Place::Ptr { ptr: PrimVal::Ptr(ptr), extra }, field))
     }
 
-    pub(super) fn val_to_lvalue(&self, val: Value, ty: Ty<'tcx>) -> EvalResult<'tcx, Lvalue<'tcx>> {
+    pub(super) fn val_to_place(&self, val: Value, ty: Ty<'tcx>) -> EvalResult<'tcx, Place<'tcx>> {
         Ok(match self.tcx.struct_tail(ty).sty {
             ty::TyDynamic(..) => {
                 let (ptr, vtable) = val.into_ptr_vtable_pair(&self.memory)?;
-                Lvalue::Ptr {
+                Place::Ptr {
                     ptr: ptr,
-                    extra: LvalueExtra::Vtable(vtable),
+                    extra: PlaceExtra::Vtable(vtable),
                 }
             }
             ty::TyStr | ty::TySlice(_) => {
                 let (ptr, len) = val.into_slice(&self.memory)?;
-                Lvalue::Ptr {
+                Place::Ptr {
                     ptr: ptr,
-                    extra: LvalueExtra::Length(len),
+                    extra: PlaceExtra::Length(len),
                 }
             }
-            _ => Lvalue::from_primval_ptr(val.read_ptr(&self.memory)?),
+            _ => Place::from_primval_ptr(val.read_ptr(&self.memory)?),
         })
     }
 
-    pub(super) fn lvalue_index(
+    pub(super) fn place_index(
         &mut self,
-        base: Lvalue<'tcx>,
+        base: Place<'tcx>,
         outer_ty: Ty<'tcx>,
         idx: PrimVal,
-    ) -> EvalResult<'tcx, Lvalue<'tcx>> {
+    ) -> EvalResult<'tcx, Place<'tcx>> {
         // Taking the outer type here may seem odd; it's needed because for array types, the outer type gives away the length.
         let base = self.force_allocation(base)?;
         let (base_ptr, _) = base.to_ptr_and_extra();
@@ -386,9 +386,9 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 (Err(_), 0) => base_ptr,
                 (Err(e), _) => return Err(e),
             };
-            Ok(Lvalue::Ptr {
+            Ok(Place::Ptr {
                 ptr: ptr_primval,
-                extra: LvalueExtra::None,
+                extra: PlaceExtra::None,
             })
         } else {
             let ptr_primval = if elem_size == 0 {
@@ -409,44 +409,44 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 PrimVal::Ptr(MemoryPointer::with_primval_offset(p.alloc_id, offset))
             };
 
-            Ok(Lvalue::Ptr {
+            Ok(Place::Ptr {
                 ptr: ptr_primval,
-                extra: LvalueExtra::None,
+                extra: PlaceExtra::None,
             })
         }
     }
 
-    pub(super) fn lvalue_downcast(
+    pub(super) fn place_downcast(
         &mut self,
-        base: Lvalue<'tcx>,
+        base: Place<'tcx>,
         variant: usize,
-    ) -> EvalResult<'tcx, Lvalue<'tcx>> {
+    ) -> EvalResult<'tcx, Place<'tcx>> {
         // FIXME(solson)
         let base = self.force_allocation(base)?;
         let (ptr, _) = base.to_ptr_and_extra();
-        let extra = LvalueExtra::DowncastVariant(variant);
-        Ok(Lvalue::Ptr { ptr, extra })
+        let extra = PlaceExtra::DowncastVariant(variant);
+        Ok(Place::Ptr { ptr, extra })
     }
 
-    pub(super) fn eval_lvalue_projection(
+    pub(super) fn eval_place_projection(
         &mut self,
-        base: Lvalue<'tcx>,
+        base: Place<'tcx>,
         base_ty: Ty<'tcx>,
         proj_elem: &mir::ProjectionElem<'tcx, mir::Local, Ty<'tcx>>,
-    ) -> EvalResult<'tcx, Lvalue<'tcx>> {
+    ) -> EvalResult<'tcx, Place<'tcx>> {
         use rustc::mir::ProjectionElem::*;
         let (ptr, extra) = match *proj_elem {
             Field(field, _) => {
                 let layout = self.type_layout(base_ty)?;
-                return Ok(self.lvalue_field(base, field, layout)?.0);
+                return Ok(self.place_field(base, field, layout)?.0);
             }
 
             Downcast(_, variant) => {
-                return self.lvalue_downcast(base, variant);
+                return self.place_downcast(base, variant);
             }
 
             Deref => {
-                let val = self.read_lvalue(base)?;
+                let val = self.read_place(base)?;
 
                 let pointee_type = match base_ty.sty {
                     ty::TyRawPtr(ty::TypeAndMut {ty, ..}) |
@@ -457,14 +457,14 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
 
                 trace!("deref to {} on {:?}", pointee_type, val);
 
-                return self.val_to_lvalue(val, pointee_type);
+                return self.val_to_place(val, pointee_type);
             }
 
             Index(local) => {
                 let value = self.frame().get_local(local)?;
                 let ty = self.tcx.types.usize;
                 let idx = self.value_to_primval(value, ty)?;
-                return self.lvalue_index(base, base_ty, idx);
+                return self.place_index(base, base_ty, idx);
             }
 
             ConstantIndex {
@@ -489,7 +489,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 };
 
                 let ptr = base_ptr.to_ptr()?.offset(index * elem_size, (&self).data_layout())?;
-                (ptr, LvalueExtra::None)
+                (ptr, PlaceExtra::None)
             }
 
             Subslice { from, to } => {
@@ -505,18 +505,18 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 let ptr = base_ptr.to_ptr()?.offset(u64::from(from) * elem_size, (&self).data_layout())?;
                 // sublicing arrays produces arrays
                 let extra = if self.type_is_sized(base_ty) {
-                    LvalueExtra::None
+                    PlaceExtra::None
                 } else {
-                    LvalueExtra::Length(PrimVal::Bytes((n - u64::from(to) - u64::from(from)) as u128))
+                    PlaceExtra::Length(PrimVal::Bytes((n - u64::from(to) - u64::from(from)) as u128))
                 };
                 (ptr, extra)
             }
         };
 
-        Ok(Lvalue::Ptr { ptr: PrimVal::Ptr(ptr), extra })
+        Ok(Place::Ptr { ptr: PrimVal::Ptr(ptr), extra })
     }
 
-    pub(super) fn lvalue_ty(&self, lvalue: &mir::Place<'tcx>) -> Ty<'tcx> {
-        self.monomorphize(lvalue.ty(self.mir(), self.tcx).to_ty(self.tcx), self.substs())
+    pub(super) fn place_ty(&self, place: &mir::Place<'tcx>) -> Ty<'tcx> {
+        self.monomorphize(place.ty(self.mir(), self.tcx).to_ty(self.tcx), self.substs())
     }
 }

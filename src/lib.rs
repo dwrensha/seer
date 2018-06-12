@@ -28,7 +28,7 @@ mod constraints;
 mod error;
 mod eval_context;
 mod executor;
-mod lvalue;
+mod place;
 mod memory;
 mod operator;
 mod step;
@@ -55,9 +55,9 @@ pub use executor::{
     ExecutionConfig,
 };
 
-pub use lvalue::{
-    Lvalue,
-    LvalueExtra,
+pub use place::{
+    Place,
+    PlaceExtra,
 };
 
 pub use memory::{

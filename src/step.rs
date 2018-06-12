@@ -12,7 +12,7 @@ use rustc::middle::const_val::ConstVal;
 use error::{EvalResult, EvalError};
 use eval_context::{EvalContext, StackPopCleanup};
 use executor::FinishStep;
-use lvalue::{Global, GlobalId, Lvalue};
+use place::{Global, GlobalId, Place};
 use syntax::codemap::Span;
 
 impl<'a, 'tcx> EvalContext<'a, 'tcx> {
@@ -81,14 +81,14 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
 
         use rustc::mir::StatementKind::*;
         match stmt.kind {
-            Assign(ref place, ref rvalue) => self.eval_rvalue_into_lvalue(rvalue, place)?,
+            Assign(ref place, ref rvalue) => self.eval_rvalue_into_place(rvalue, place)?,
 
             SetDiscriminant {
                 ref place,
                 variant_index,
             } => {
-                let dest = self.eval_lvalue(place)?;
-                let dest_ty = self.lvalue_ty(place);
+                let dest = self.eval_place(place)?;
+                let dest_ty = self.place_ty(place);
                 self.write_discriminant_value(dest_ty, dest, variant_index)?;
             }
 
@@ -101,7 +101,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             ReadForMatch(..) => {}
 
             // Validity checks.
-            Validate(_op, ref _lvalues) => {
+            Validate(_op, ref _places) => {
                 // TODO
             }
 
@@ -172,7 +172,7 @@ impl<'a, 'b, 'tcx> ConstantExtractor<'a, 'b, 'tcx> {
                 instance,
                 span,
                 mir,
-                Lvalue::Global(cid),
+                Place::Global(cid),
                 cleanup,
             )
         });
@@ -215,7 +215,7 @@ impl<'a, 'b, 'tcx> Visitor<'tcx> for ConstantExtractor<'a, 'b, 'tcx> {
                     this.ecx.push_stack_frame(this.instance,
                                               constant.span,
                                               mir,
-                                              Lvalue::Global(cid),
+                                              Place::Global(cid),
                                               StackPopCleanup::MarkStatic(false))
                 });
             }
@@ -224,12 +224,12 @@ impl<'a, 'b, 'tcx> Visitor<'tcx> for ConstantExtractor<'a, 'b, 'tcx> {
 
     fn visit_place(
         &mut self,
-        lvalue: &mir::Place<'tcx>,
+        place: &mir::Place<'tcx>,
         context: PlaceContext<'tcx>,
         location: mir::Location
     ) {
-        self.super_place(lvalue, context, location);
-        if let mir::Place::Static(ref static_) = *lvalue {
+        self.super_place(place, context, location);
+        if let mir::Place::Static(ref static_) = *place {
             let def_id = static_.def_id;
             let substs = self.ecx.tcx.intern_substs(&[]);
             let span = self.span;
