@@ -3,11 +3,12 @@ use std::collections::{btree_map, BTreeMap, HashMap, HashSet, VecDeque, BTreeSet
 use std::{fmt, iter, ptr, mem, io};
 
 use rustc::{ty, mir};
-use rustc::ty::layout::{self, TargetDataLayout};
+use rustc::ty::layout::{self, HasDataLayout, TargetDataLayout};
 use rustc::mir::interpret::{AllocType};
 
 use constraints::ConstraintContext;
 use error::{EvalError, EvalResult};
+use eval_context::{EvalContext};
 use value::{self, PrimVal, PrimValKind, Value};
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -493,6 +494,30 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
 
     pub(crate) fn clear_packed(&mut self) {
         self.packed.clear();
+    }
+}
+
+impl<'a, 'tcx> EvalContext<'a, 'tcx> {
+    pub(crate) fn offset(&mut self, ptr: MemoryPointer, i: u64)
+                         -> EvalResult<'tcx, MemoryPointer>
+    {
+        match ptr.offset {
+            PointerOffset::Concrete(offset) => {
+                Ok(MemoryPointer::new(ptr.alloc_id, value::offset(offset, i, (&self).data_layout())?))
+            }
+            PointerOffset::Abstract(sbytes) => {
+                let new_offset = self.memory.constraints.add_binop_constraint(
+                    mir::BinOp::Add,
+                    PrimVal::Abstract(sbytes),
+                    PrimVal::Bytes(i as u128),
+                    PrimValKind::U64);
+                if let PrimVal::Abstract(osbytes) = new_offset {
+                    Ok(MemoryPointer::new_abstract(ptr.alloc_id, osbytes))
+                } else {
+                    unreachable!()
+                }
+            }
+        }
     }
 }
 

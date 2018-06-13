@@ -317,7 +317,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             _ => offset.bytes(),
         };
 
-        let ptr = base_ptr.to_ptr()?.offset(offset, (&self).data_layout())?;
+        let ptr = self.offset(base_ptr.to_ptr()?, offset)?;
         // if we were unaligned, stay unaligned
         // no matter what we were, if we are packed, we must not be aligned anymore
         //ptr.aligned &= !base_layout.is_packed();

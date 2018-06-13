@@ -145,6 +145,13 @@ fn symbolic_ptr_offset() {
 }
 
 #[test]
+fn symbolic_ptr_offset_field() {
+    expect_single_panic(
+        "tests/symbolic/ptr_offset_field.rs",
+        vec![3, 5]);
+}
+
+#[test]
 fn symbolic_slice() {
     expect_single_panic(
         "tests/symbolic/slice.rs",
