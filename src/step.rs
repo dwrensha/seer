@@ -25,7 +25,13 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         }
     }
 
-    /// Returns true as long as there are more things to do.
+    /// Takes a single step, possibly returning multiple branches.
+    ///
+    /// Returns (more_steps_to_take, maybe_finish_steps).
+    ///
+    /// If maybe_finish_steps in None, then there was no branching and `self` has the updated
+    /// context. Otherwise we've hit a branch, and each of the FinishSteps must be applied to
+    /// a clone of `self` to get the resulting branches.
     pub fn step(&mut self)
                 -> EvalResult<'tcx, (bool, Option<Vec<FinishStep<'tcx>>>)>
     {
