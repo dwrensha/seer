@@ -17,7 +17,10 @@ fn expect_panics(filename: &str, mut expected_results: Vec<Vec<u8>>) {
                 found1.borrow_mut().push(input);
                 true
             }
-            _ => true,
+            ::seer::ExecutionComplete { result: Ok(()), input: _ } => true,
+            ::seer::ExecutionComplete { result: Err(e), input } => {
+                panic!("unexpected error {:?} with input {:?}", e, input)
+            }
         }
     };
 
