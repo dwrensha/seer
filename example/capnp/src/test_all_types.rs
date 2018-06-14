@@ -66,7 +66,7 @@ fn try_go(mut data: &[u8]) -> ::capnp::Result<()> {
 
 pub fn main() {
     use std::io::Read;
-    let mut data: Vec<u8> = vec![0; 64];
+    let mut data: Vec<u8> = vec![0; 32];
 
     // Set the size of the message to a concrete value because seer does
     // not yet support allocation of abstract size.

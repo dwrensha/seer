@@ -26,24 +26,17 @@ fn main() {
                       Foo::new(6),
                       Foo::new(7),
                       Foo::new(8),
-                      Foo::new(9),
-                      Foo::new(10)];
+                      Foo::new(9)];
 
-    let mut p = v.as_ptr();
-
-    let d0 = data[0]; // 3
-    let d1 = data[1]; // 5
+    let d0 = data[0]; // 1
+    let d1 = data[1]; // 4
 
     if d0 as usize + d1 as usize >= v.len() {
         return;
     }
 
-    p = unsafe { p.offset(d0 as isize) };
-
-    let q = unsafe { p.offset(d1 as isize) };
-
-    if unsafe { (*p).a } == 3 {
-        if unsafe { (*q).b } == 8 {
+    if v[d0 as usize].a == 1 {
+        if v[d0 as usize + d1 as usize].b == 5 {
             panic!()
         }
     }
