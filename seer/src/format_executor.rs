@@ -12,7 +12,7 @@ use syntax::codemap::{DUMMY_SP, Span, CodeMap};
 use syntax::ast;
 
 use value::{PrimVal, Value};
-use lvalue::Lvalue;
+use place::Place;
 use error::EvalResult;
 use executor::{FinishStep, FinishStepVariant};
 use memory::{SByte, MemoryPointer};
@@ -69,7 +69,7 @@ pub struct FormatExecutor<'a, 'tcx: 'a> {
 /// panics if ty is not of the TyAdt variant
 fn field_ty_and_offset<'a, 'tcx: 'a>(ecx: &EvalContext<'a, 'tcx>, ty: Ty<'tcx>, field_substs: &ty::subst::Substs<'tcx>, name: &str) -> Option<(Ty<'tcx>, u64)> {
     for (field_num, field_def) in ty.ty_adt_def().unwrap().all_fields().enumerate() {
-        if field_def.name == name {
+        if field_def.ident.name == name {
             let field_ty = field_def.ty(ecx.tcx, field_substs);
             let field_offset = ecx.layout_of(ty).unwrap().fields.offset(field_num).bytes();
             return Some((field_ty, field_offset))
@@ -129,12 +129,12 @@ impl<'a, 'tcx: 'a> FormatExecutor<'a, 'tcx> {
         let instance = ty::Instance::new(self.entry_def_id, substs);
         let mir = ecx.load_mir(instance.def).expect("entry function's MIR not found");
 
-        let return_lvalue = Lvalue::from_ptr(self.return_ptr);
+        let return_place = Place::from_ptr(self.return_ptr);
         ecx.push_stack_frame(
             instance,
             DUMMY_SP,
             &mir,
-            return_lvalue,
+            return_place,
             StackPopCleanup::None,
         ).expect("could not allocate first stack frame");
 
@@ -156,9 +156,9 @@ impl<'a, 'tcx: 'a> FormatExecutor<'a, 'tcx> {
                         for constraint in constraints {
                             ecx.memory.constraints.push_constraint(constraint);
                             match variant {
-                                FinishStepVariant::Continue {goto_block, set_lvalue} => {
-                                    if let Some((lvalue, prim, ty)) = set_lvalue {
-                                        ecx.write_primval(lvalue, prim, ty)?;
+                                FinishStepVariant::Continue {goto_block, set_place} => {
+                                    if let Some((place, prim, ty)) = set_place {
+                                        ecx.write_primval(place, prim, ty)?;
                                         ecx.goto_block(goto_block);
                                     }
                                 }

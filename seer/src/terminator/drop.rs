@@ -4,13 +4,13 @@ use syntax::codemap::Span;
 
 use error::EvalResult;
 use eval_context::{EvalContext, StackPopCleanup, ValTy};
-use lvalue::{Lvalue, LvalueExtra};
+use place::{Place, PlaceExtra};
 use value::PrimVal;
 use value::Value;
 
 impl<'a, 'tcx> EvalContext<'a, 'tcx> {
-    pub(crate) fn drop_lvalue(&mut self, lval: Lvalue<'tcx>, instance: ty::Instance<'tcx>, ty: Ty<'tcx>, span: Span) -> EvalResult<'tcx> {
-        trace!("drop_lvalue: {:#?}", lval);
+    pub(crate) fn drop_place(&mut self, lval: Place<'tcx>, instance: ty::Instance<'tcx>, ty: Ty<'tcx>, span: Span) -> EvalResult<'tcx> {
+        trace!("drop_place: {:#?}", lval);
 
         // FIXME: Surely there is a more robust  way to check for this case?
         if format!("{:?}", ty) == "std::io::Stdin" {
@@ -18,9 +18,9 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         }
 
         let val = match self.force_allocation(lval)? {
-            Lvalue::Ptr { ptr, extra: LvalueExtra::Vtable(vtable) } => Value::ByValPair(ptr, PrimVal::Ptr(vtable)),
-            Lvalue::Ptr { ptr, extra: LvalueExtra::Length(len) } => Value::ByValPair(ptr, len),
-            Lvalue::Ptr { ptr, extra: LvalueExtra::None } => Value::ByVal(ptr),
+            Place::Ptr { ptr, extra: PlaceExtra::Vtable(vtable) } => Value::ByValPair(ptr, PrimVal::Ptr(vtable)),
+            Place::Ptr { ptr, extra: PlaceExtra::Length(len) } => Value::ByValPair(ptr, len),
+            Place::Ptr { ptr, extra: PlaceExtra::None } => Value::ByVal(ptr),
             _ => bug!("force_allocation broken"),
         };
         self.drop(val, instance, ty, span)
@@ -55,14 +55,14 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             instance,
             span,
             mir,
-            Lvalue::undef(),
+            Place::undef(),
             StackPopCleanup::None,
         )?;
 
         let mut arg_locals = self.frame().mir.args_iter();
         assert_eq!(self.frame().mir.arg_count, 1);
         let arg_local = arg_locals.next().unwrap();
-        let dest = self.eval_lvalue(&mir::Place::Local(arg_local))?;
+        let dest = self.eval_place(&mir::Place::Local(arg_local))?;
         let arg_ty = self.tcx.mk_mut_ptr(ty);
         self.write_value(ValTy { value: arg, ty: arg_ty }, dest)
     }

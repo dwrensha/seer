@@ -9,7 +9,7 @@ use syntax;
 use syntax::ast::{MetaItemKind, NestedMetaItemKind, self};
 use std::path::PathBuf;
 
-struct SeerCompilerCalls(RustcDefaultCalls, ::ExecutionConfig);
+struct SeerCompilerCalls(Box<RustcDefaultCalls>, ::ExecutionConfig);
 
 impl<'a> CompilerCalls<'a> for SeerCompilerCalls {
     fn early_callback(
@@ -45,10 +45,11 @@ impl<'a> CompilerCalls<'a> for SeerCompilerCalls {
     ) -> Compilation {
         self.0.late_callback(codegen_backend, matches, sess, cstore, input, odir, ofile)
     }
-    fn build_controller(&mut self, sess: &Session, matches: &getopts::Matches) -> CompileController<'a> {
-        let mut control = self.0.build_controller(sess, matches);
+    fn build_controller(self: Box<Self>, sess: &Session, matches: &getopts::Matches) -> CompileController<'a> {
+        let this = *self;
+        let mut control = this.0.build_controller(sess, matches);
         control.after_hir_lowering.callback = Box::new(after_hir_lowering);
-        control.after_analysis.callback = after_analysis_run_main(self.1.clone());
+        control.after_analysis.callback = after_analysis_run_main(this.1.clone());
         control.after_analysis.stop = Compilation::Stop;
         control
     }
@@ -143,7 +144,7 @@ pub fn main_helper(mut args: Vec<String>, config: ::ExecutionConfig)
     // for auxilary builds in unit tests
     args.push("-Zalways-encode-mir".to_owned());
 
-    rustc_driver::run_compiler(&args, &mut SeerCompilerCalls(RustcDefaultCalls, config),
+    rustc_driver::run_compiler(&args, Box::new(SeerCompilerCalls(Box::new(RustcDefaultCalls), config)),
                                None, None);
 }
 

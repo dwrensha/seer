@@ -11,7 +11,7 @@ fn main() {
     let d0 = data[0]; // 2
     let d1 = data[1]; // 4
 
-    if (d0.wrapping_add(d1)) as usize >= v.len() {
+    if d0 as usize + d1 as usize >= v.len() {
         return;
     }
 

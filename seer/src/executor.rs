@@ -10,7 +10,7 @@ use syntax::codemap::{DUMMY_SP, CodeMap};
 
 use constraints::{Constraint, SatisfiedVarGroup};
 use error::{StaticEvalError, EvalError};
-use lvalue::{Lvalue};
+use place::{Place};
 use eval_context::{EvalContext, Frame, ResourceLimits, StackPopCleanup};
 use value::{PrimVal};
 use format_executor::BestEffortFormatter;
@@ -30,7 +30,7 @@ pub struct FinishStep<'tcx> {
 pub enum FinishStepVariant<'tcx> {
     Continue {
         goto_block: mir::BasicBlock,
-        set_lvalue: Option<(Lvalue<'tcx>, PrimVal, Ty<'tcx>)>,
+        set_place: Option<(Place<'tcx>, PrimVal, Ty<'tcx>)>,
     },
     Error(EvalError<'tcx>),
 }
@@ -107,7 +107,7 @@ impl <'a, 'tcx: 'a> Executor<'a, 'tcx> {
             instance,
             DUMMY_SP,
             &mir,
-            Lvalue::undef(),
+            Place::undef(),
             StackPopCleanup::None,
         ).expect("could not allocate first stack frame");
 
@@ -162,9 +162,9 @@ impl <'a, 'tcx: 'a> Executor<'a, 'tcx> {
                             for constraint in constraints {
                                 cx.memory.constraints.push_constraint(constraint);
                                 match variant {
-                                    FinishStepVariant::Continue { goto_block, set_lvalue} => {
-                                        if let Some((lvalue, prim, ty)) = set_lvalue {
-                                            if let Err(_) = cx.write_primval(lvalue, prim, ty) {
+                                    FinishStepVariant::Continue { goto_block, set_place} => {
+                                        if let Some((place, prim, ty)) = set_place {
+                                            if let Err(_) = cx.write_primval(place, prim, ty) {
                                                 unimplemented!()
                                             }
                                         }

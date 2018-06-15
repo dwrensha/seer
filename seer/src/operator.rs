@@ -7,7 +7,7 @@ use syntax::ast::FloatTy;
 
 use error::{EvalError, EvalResult};
 use eval_context::{EvalContext, ValTy};
-use lvalue::Lvalue;
+use place::Place;
 use memory::{MemoryPointer, PointerOffset, SByte};
 use value::{
     PrimVal,
@@ -41,7 +41,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         op: mir::BinOp,
         left: &mir::Operand<'tcx>,
         right: &mir::Operand<'tcx>,
-        dest: Lvalue<'tcx>,
+        dest: Place<'tcx>,
         dest_ty: Ty<'tcx>,
     ) -> EvalResult<'tcx> {
         let (val, overflowed) = self.binop_with_overflow(op, left, right)?;
@@ -56,7 +56,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         op: mir::BinOp,
         left: &mir::Operand<'tcx>,
         right: &mir::Operand<'tcx>,
-        dest: Lvalue<'tcx>,
+        dest: Place<'tcx>,
         dest_ty: Ty<'tcx>,
     ) -> EvalResult<'tcx, bool> {
         let (val, overflowed) = self.binop_with_overflow(op, left, right)?;

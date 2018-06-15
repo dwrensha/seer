@@ -10,7 +10,7 @@ use constraints::Constraint;
 use error::{EvalError, EvalResult};
 use eval_context::{EvalContext, StackPopCleanup, ValTy, is_inhabited};
 use executor::{FinishStep, FinishStepVariant};
-use lvalue::Lvalue;
+use place::Place;
 use memory::{SByte};
 use value::{PrimVal, PrimValKind};
 use value::Value;
@@ -35,7 +35,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         use rustc::mir::TerminatorKind::*;
         match terminator.kind {
             Return => {
-                self.dump_local(self.frame().return_lvalue);
+                self.dump_local(self.frame().return_place);
                 self.pop_stack_frame()?;
                 Ok(None)
             }
@@ -81,7 +81,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                                     constraints: vec![eq_constraint],
                                     variant: FinishStepVariant::Continue {
                                         goto_block: targets[index],
-                                        set_lvalue: None,
+                                        set_place: None,
                                     },
                                 });
                         }
@@ -93,7 +93,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                                 constraints: otherwise_constraints,
                                 variant: FinishStepVariant::Continue {
                                     goto_block: targets[targets.len() - 1],
-                                    set_lvalue: None,
+                                    set_place: None,
                                 }
                             });
                     }
@@ -104,7 +104,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
 
             Call { ref func, ref args, ref destination, .. } => {
                 let destination = match *destination {
-                    Some((ref lv, target)) => Some((self.eval_lvalue(lv)?, target)),
+                    Some((ref lv, target)) => Some((self.eval_place(lv)?, target)),
                     None => None,
                 };
 
@@ -146,13 +146,13 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
 
             Drop { ref location, target, .. } => {
                 trace!("TerminatorKind::drop: {:?}, {:?}", location, self.substs());
-                let lval = self.eval_lvalue(location)?;
-                let ty = self.lvalue_ty(location);
+                let lval = self.eval_place(location)?;
+                let ty = self.place_ty(location);
                 self.goto_block(target);
                 let ty = ::eval_context::apply_param_substs(self.tcx, self.substs(), &ty);
 
                 let instance = ::eval_context::resolve_drop_in_place(self.tcx, ty);
-                self.drop_lvalue(lval, instance, ty, terminator.source_info.span)?;
+                self.drop_place(lval, instance, ty, terminator.source_info.span)?;
                 Ok(None)
             }
 
@@ -200,7 +200,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                                 constraints: succeed_constraints,
                                 variant: FinishStepVariant::Continue {
                                     goto_block: target,
-                                    set_lvalue: None,
+                                    set_place: None,
                                 },
                             });
                     }
@@ -309,7 +309,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
     fn eval_fn_call(
         &mut self,
         instance: ty::Instance<'tcx>,
-        destination: Option<(Lvalue<'tcx>, mir::BasicBlock)>,
+        destination: Option<(Place<'tcx>, mir::BasicBlock)>,
         arg_operands: &[mir::Operand<'tcx>],
         span: Span,
         sig: ty::FnSig<'tcx>,
@@ -351,7 +351,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                     // closure as closure once
                     Abi::RustCall => {
                         for (arg_local, arg_valty) in arg_locals.zip(args) {
-                            let dest = self.eval_lvalue(&mir::Place::Local(arg_local))?;
+                            let dest = self.eval_place(&mir::Place::Local(arg_local))?;
                             self.write_value(arg_valty, dest)?;
                         }
                     },
@@ -363,7 +363,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                         trace!("arg_operands: {:?}", arg_operands);
                         let local = arg_locals.nth(1).unwrap();
                         for (i, arg_valty) in args.into_iter().enumerate() {
-                            let dest = self.eval_lvalue(&mir::Place::Local(local).field(mir::Field::new(i),
+                            let dest = self.eval_place(&mir::Place::Local(local).field(mir::Field::new(i),
                                                                                         arg_valty.ty))?;
                             self.write_value(arg_valty, dest)?;
                         }
@@ -409,7 +409,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 match sig.abi {
                     Abi::Rust => {
                         for (arg_local, valty) in arg_locals.zip(args) {
-                            let dest = self.eval_lvalue(&mir::Place::Local(arg_local))?;
+                            let dest = self.eval_place(&mir::Place::Local(arg_local))?;
                             self.write_value(valty, dest)?;
                         }
                     }
@@ -418,7 +418,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
 
                         {   // write first argument
                             let first_local = arg_locals.next().unwrap();
-                            let dest = self.eval_lvalue(&mir::Place::Local(first_local))?;
+                            let dest = self.eval_place(&mir::Place::Local(first_local))?;
                             self.write_value(ValTy { value: args[0].value, ty: args[0].ty }, dest)?;
                         }
 
@@ -433,7 +433,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                                             let offset = layout.fields.offset(i).bytes();
                                             let arg = Value::ByRef(ptr.offset(offset, (&self).data_layout())?);
                                             let dest =
-                                                self.eval_lvalue(&mir::Place::Local(arg_local))?;
+                                                self.eval_place(&mir::Place::Local(arg_local))?;
                                             trace!(
                                                 "writing arg {:?} to {:?} (type: {})",
                                                 arg,
@@ -451,7 +451,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                                             let field = layout.field(&self, i)?;
                                             if layout.size == field.size {
                                                 let dest =
-                                                    self.eval_lvalue(&mir::Place::Local(arg_local))?;
+                                                    self.eval_place(&mir::Place::Local(arg_local))?;
                                                 self.write_value(ValTy { value: other, ty: field.ty }, dest)?;
                                                 wrote_arg = true;
                                                 break;
@@ -465,7 +465,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                             } else {
                                 trace!("manual impl of rust-call ABI");
                                 // called a manual impl of a rust-call function
-                                let dest = self.eval_lvalue(
+                                let dest = self.eval_place(
                                     &mir::Place::Local(arg_locals.next().unwrap()),
                                 )?;
                                 self.write_value(ValTy {value: args[1].value, ty: args[1].ty }, dest)?;
@@ -511,7 +511,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
     fn eval_fn_call_inner(
         &mut self,
         instance: ty::Instance<'tcx>,
-        destination: Option<(Lvalue<'tcx>, mir::BasicBlock)>,
+        destination: Option<(Place<'tcx>, mir::BasicBlock)>,
         arg_operands: &[mir::Operand<'tcx>],
         span: Span,
         sig: ty::FnSig<'tcx>,
@@ -706,16 +706,16 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             Err(other) => return Err(other),
         };
 
-        let (return_lvalue, return_to_block) = match destination {
-            Some((lvalue, block)) => (lvalue, StackPopCleanup::Goto(block)),
-            None => (Lvalue::undef(), StackPopCleanup::None),
+        let (return_place, return_to_block) = match destination {
+            Some((place, block)) => (place, StackPopCleanup::Goto(block)),
+            None => (Place::undef(), StackPopCleanup::None),
         };
 
         self.push_stack_frame(
             instance,
             span,
             mir,
-            return_lvalue,
+            return_place,
             return_to_block,
         )?;
 
@@ -726,7 +726,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
     fn call_missing_fn(
         &mut self,
         instance: ty::Instance<'tcx>,
-        destination: Option<(Lvalue<'tcx>, mir::BasicBlock)>,
+        destination: Option<(Place<'tcx>, mir::BasicBlock)>,
         arg_operands: &[mir::Operand<'tcx>],
         sig: ty::FnSig<'tcx>,
         path: String,
@@ -934,7 +934,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         &mut self,
         def_id: DefId,
         args: &[mir::Operand<'tcx>],
-        dest: Lvalue<'tcx>,
+        dest: Place<'tcx>,
         dest_ty: Ty<'tcx>,
         target: mir::BasicBlock,
     ) -> EvalResult<'tcx, Option<Vec<FinishStep<'tcx>>>> {
@@ -1028,7 +1028,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                                     constraints: lt_constraints,
                                     variant: FinishStepVariant::Continue {
                                         goto_block: target,
-                                        set_lvalue: Some(
+                                        set_place: Some(
                                             (dest, PrimVal::from_i128(-1), dest_ty)),
                                     },
                                 });
@@ -1040,7 +1040,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                                     constraints: gt_constraints,
                                     variant: FinishStepVariant::Continue {
                                         goto_block: target,
-                                        set_lvalue: Some(
+                                        set_place: Some(
                                             (dest, PrimVal::from_u128(1), dest_ty)),
                                     },
                                 });
@@ -1063,7 +1063,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                             constraints: equal_constraints,
                             variant: FinishStepVariant::Continue {
                                 goto_block: target,
-                                set_lvalue: Some((dest, PrimVal::from_u128(0), dest_ty)),
+                                set_place: Some((dest, PrimVal::from_u128(0), dest_ty)),
                             },
                         });
                     }

@@ -18,7 +18,10 @@ fn expect_panics(filename: &str, mut expected_results: Vec<Vec<u8>>) {
                 found1.borrow_mut().push(stdin);
                 true
             }
-            _ => true,
+            ::seer::ExecutionComplete { result: Ok(()), input: _ } => true,
+            ::seer::ExecutionComplete { result: Err(e), input } => {
+                panic!("unexpected error {:?} with input {:?}", e, input)
+            }
         }
     };
 
@@ -143,6 +146,20 @@ fn symbolic_ptr_offset() {
     expect_single_panic(
         "tests/symbolic/ptr_offset.rs",
         vec![2, 4]);
+}
+
+#[test]
+fn symbolic_ptr_offset_field() {
+    expect_single_panic(
+        "tests/symbolic/ptr_offset_field.rs",
+        vec![3, 5]);
+}
+
+#[test]
+fn symbolic_array_offset_field() {
+    expect_single_panic(
+        "tests/symbolic/array_offset_field.rs",
+        vec![1, 4]);
 }
 
 #[test]
