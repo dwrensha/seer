@@ -2,10 +2,6 @@
 pub fn mksym<T>(var: &mut T) {
 }
 
-#[allow(unused_variables)]
-pub fn test(s: &str) {
-}
-
 /// This macro must be invoked in the user crate root in order to get formatting to work. It
 /// inserts a function `seer_helper_format`. Seer later uses this to get a string representation of
 /// variables marked with `mksym`.

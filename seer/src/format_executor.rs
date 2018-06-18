@@ -121,8 +121,6 @@ impl<'a, 'tcx: 'a> FormatExecutor<'a, 'tcx> {
         }
     }
 
-    
-
     fn prepare(&self, data: &[u8], ty: Ty<'tcx>) -> EvalResult<'tcx, EvalContext<'a, 'tcx>> {
         let mut ecx = self.initial_ecx.clone();
         let substs = self.tcx.mk_substs([ty::subst::Kind::from(ty)].iter());
@@ -150,7 +148,7 @@ impl<'a, 'tcx: 'a> FormatExecutor<'a, 'tcx> {
             match ecx.step()? {
                 (true, None) => {}
                 (true, Some(branches)) => {
-                    assert_eq!(branches.len(), 1, "there should be exactly feasible branch, found {}", branches.len());
+                    assert_eq!(branches.len(), 1, "there should be exactly 1 feasible branch, found {}", branches.len());
                     for finish_step in branches {
                         let FinishStep {constraints, variant} = finish_step;
                         for constraint in constraints {
@@ -244,24 +242,11 @@ impl<'a, 'tcx> ItemLikeVisitor<'tcx> for FunctionVisitor<'a> {
     fn visit_item(&mut self, i: &'tcx hir::Item){
         match i.node {
             hir::ItemFn(..) => {
-                //println!("visited fn: {}", i.name);
                 if i.name == self.name {
                     self.display_fn = Some((i.id, i.span));
                 }
             }
-            hir::ItemExternCrate(opt_original_name) => {
-                let name = match opt_original_name {
-                    Some(original) => original.as_str(),
-                    None => i.name.as_str(),
-                };
-                //println!("visited extern crate '{}'", name);
-                if name == "seer_helper" {
-                    //println!("found helper crate: {:?}", i);
-                }
-            }
-            _ => {
-                //println!("visited other: {:?}", i);
-            }
+            _ => {}
         }
     }
 

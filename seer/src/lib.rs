@@ -23,6 +23,8 @@ extern crate syntax;
 extern crate seer_z3 as z3;
 extern crate byteorder;
 extern crate regex;
+#[macro_use]
+extern crate lazy_static;
 
 mod cast;
 mod constraints;
