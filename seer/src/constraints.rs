@@ -113,14 +113,14 @@ pub enum Constraint {
         lhs: PrimVal,
     },
 
-    /// array[index] = value
+    // array[index] = value
     ArrayElement {
         array: AbstractVariable,
         index: PrimVal,
         value: SByte,
     },
 
-    /// lhs = array.store(idx, value)
+    // lhs = array.store(idx, value)
     ArrayStore {
         array: AbstractVariable,
         index: PrimVal,
