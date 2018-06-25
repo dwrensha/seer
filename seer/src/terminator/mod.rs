@@ -544,7 +544,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                                 }
                                 let caps = RE_MKSYM_IDENT.captures(&source).unwrap();
                                 let label = format!("{}", &caps[1]);
-                                self.memory.write_fresh_var_group(ptr, len as u64, label, ty)?;
+                                self.memory.write_fresh_symbolic_var(ptr, len as u64, label, ty)?;
                             }
                             _ => {
                                 panic!("mksym arg had unexpected form: {:?}", args[0])

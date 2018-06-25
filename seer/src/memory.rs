@@ -752,10 +752,10 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
         Ok(())
     }
 
-    pub fn write_fresh_var_group(&mut self, ptr: MemoryPointer, size: u64, label: String, ty: ty::Ty<'tcx>)
+    pub fn write_fresh_symbolic_var(&mut self, ptr: MemoryPointer, size: u64, label: String, ty: ty::Ty<'tcx>)
         -> EvalResult<'tcx>
     {
-        let abytes = self.constraints.fresh_var_group(label, size as u32, ty);
+        let abytes = self.constraints.fresh_symbolic_var(label, size as u32, ty);
         let sbytes = self.get_bytes_mut(ptr, size, 1)?;
         for idx in 0..(size as usize) {
             sbytes[idx] = abytes[idx];

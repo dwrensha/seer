@@ -35,11 +35,10 @@ impl VarType {
     }
 }
 
-/// A labeled group of variables that should be displayed together.
 #[derive(Clone, Debug)]
-struct VarGroup<'tcx> {
+struct SymbolicVar<'tcx> {
     label: String,
-    /// Each entry represents a variable as an ID and a type.
+    /// One SymbolicVar is built out of many BitVec8's. The IDs are stored here.
     variables: Vec<(u32, VarType)>,
     ty: Option<Ty<'tcx>>,
 }
@@ -50,21 +49,21 @@ pub struct ConstraintContext<'tcx> {
     /// Each entry represents a variable as an ID and a type. These are used
     /// for intermediate results in constraints and are not displayed.
     variables_inner: Vec<(u32, VarType)>,
-    /// The group at index 0 is the stdin group
-    var_groups: Vec<VarGroup<'tcx>>,
+    /// Index 0 is stdin
+    symbolic_vars: Vec<SymbolicVar<'tcx>>,
     constraints: Vec<Constraint>,
 }
 
 /// Holds relevant parts of the solution z3 found when solving a set of constraints.
 #[derive(Clone)]
-pub struct SatisfiedVarGroup {
+pub struct SatisfiedVar {
     pub label: String,
     /// Variable assignments that satisfy the given constraints.
     pub assignments: Vec<u8>,
     pub assignments_str: Option<String>,
 }
 
-impl fmt::Debug for SatisfiedVarGroup {
+impl fmt::Debug for SatisfiedVar {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.assignments_str {
             Some(ref s) => {
@@ -176,7 +175,7 @@ impl<'tcx> ConstraintContext<'tcx> {
         ConstraintContext {
             next_id: 0,
             variables_inner: Vec::new(),
-            var_groups: vec![VarGroup {
+            symbolic_vars: vec![SymbolicVar {
                 label: "stdin".to_string(),
                 variables: Vec::new(),
                 ty: None,
@@ -199,11 +198,11 @@ impl<'tcx> ConstraintContext<'tcx> {
 
     pub fn fresh_stdin_byte(&mut self) -> SByte {
         let id = self.next_id();
-        self.var_groups[0].variables.push((id, VarType::BitVec8));
+        self.symbolic_vars[0].variables.push((id, VarType::BitVec8));
         SByte::Abstract(AbstractVariable(id))
     }
 
-    pub fn fresh_var_group(&mut self, label: String, size: u32, ty: Ty<'tcx>) -> Vec<SByte> {
+    pub fn fresh_symbolic_var(&mut self, label: String, size: u32, ty: Ty<'tcx>) -> Vec<SByte> {
         let mut sbytes = Vec::new();
         let mut vars = Vec::new();
         for _ in 0..size {
@@ -211,7 +210,7 @@ impl<'tcx> ConstraintContext<'tcx> {
             sbytes.push(SByte::Abstract(AbstractVariable(id)));
             vars.push((id, VarType::BitVec8));
         }
-        self.var_groups.push(VarGroup {
+        self.symbolic_vars.push(SymbolicVar {
             label: label,
             variables: vars,
             ty: Some(ty),
@@ -390,7 +389,7 @@ impl<'tcx> ConstraintContext<'tcx> {
         new_array
     }
 
-    pub fn get_satisfying_values<T>(&self, formatter: &T) -> Vec<SatisfiedVarGroup>
+    pub fn get_satisfying_values<T>(&self, formatter: &T) -> Vec<SatisfiedVar>
         where T: DebugFormatter<'tcx>
     {
         let cfg = z3::Config::new();
@@ -402,8 +401,8 @@ impl<'tcx> ConstraintContext<'tcx> {
             consts.push(self.variable_to_ast(&ctx, *v));
         }
 
-        // Each group has its variables mapped to z3 ASTs. Keep the labels and types.
-        let result_consts = self.var_groups.iter().map(
+        // Each SymbolicVar has its internal variables mapped to z3 ASTs. Keep the labels and types.
+        let result_consts = self.symbolic_vars.iter().map(
             |g| (g.label.clone(), g.variables.iter().map(|v| self.variable_to_ast(&ctx, *v)), g.ty));
 
         for c in &self.constraints {
@@ -425,7 +424,7 @@ impl<'tcx> ConstraintContext<'tcx> {
                 }
                 None => None,
             };
-            result.push(SatisfiedVarGroup {
+            result.push(SatisfiedVar {
                 label: label,
                 assignments: assignments,
                 assignments_str: assignments_str,
