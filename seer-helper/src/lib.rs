@@ -1,3 +1,4 @@
+/// Instructs Seer to make the contents of `var` symbolic.
 #[allow(unused_variables)]
 pub fn mksym<T>(var: &mut T) {
 }
