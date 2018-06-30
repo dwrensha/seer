@@ -143,7 +143,7 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
             if let traits::VtableImpl(vtable_impl) = vtable {
                 let name = self.tcx.item_name(def_id).as_str();
                 let assoc_const_opt = self.tcx.associated_items(vtable_impl.impl_def_id)
-                    .find(|item| item.kind == ty::AssociatedKind::Const && item.name == name);
+                    .find(|item| item.kind == ty::AssociatedKind::Const && item.ident.as_interned_str().as_str() == name);
                 if let Some(assoc_const) = assoc_const_opt {
                     return ty::Instance::new(assoc_const.def_id, vtable_impl.substs);
                 }
