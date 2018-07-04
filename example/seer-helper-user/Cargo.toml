@@ -1,0 +1,7 @@
+[package]
+name = "seer-user"
+version = "0.1.0"
+authors = ["nilfit <nils.fitinghoff@gmail.com>"]
+
+[dependencies]
+seer-helper = { path = "../../seer-helper" }

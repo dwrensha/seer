@@ -15,6 +15,7 @@ use memory::{SByte};
 use value::{PrimVal, PrimValKind};
 use value::Value;
 use rustc_data_structures::indexed_vec::Idx;
+use regex::Regex;
 
 mod drop;
 mod intrinsic;
@@ -522,6 +523,37 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         match instance.def {
             ty::InstanceDef::Item(def_id) => {
                 match self.tcx.item_path_str(def_id).as_str() {
+                    "seer_helper::mksym" => {
+                        let (_lval, block) = destination.expect("seer_helper::mksym() does not diverge");
+                        let args_res: EvalResult<Vec<Value>> = arg_operands.iter()
+                            .map(|arg| self.eval_operand(arg))
+                            .collect();
+                        let args = args_res?;
+
+                        match args[0] {
+                            Value::ByVal(PrimVal::Ptr(ptr)) => {
+                                let ty = instance.substs.type_at(0);
+                                let len = self.type_size(ty)?.expect("instance?");
+                                let source = match self.codemap.span_to_snippet(span) {
+                                    Ok(s) => s,
+                                    Err(e) => bug!("failed to get source for span {:?}: {:?}", span, e),
+                                };
+                                // it would be more robust to use rustc's parser
+                                lazy_static!{
+                                    static ref RE_MKSYM_IDENT: Regex = Regex::new(r"mksym\(&?(?:mut)?\s*(.*)\)").unwrap();
+                                }
+                                let caps = RE_MKSYM_IDENT.captures(&source).unwrap();
+                                let label = format!("{}", &caps[1]);
+                                self.memory.write_fresh_symbolic_var(ptr, len as u64, label, ty)?;
+                            }
+                            _ => {
+                                panic!("mksym arg had unexpected form: {:?}", args[0])
+                            }
+                        }
+
+                        self.goto_block(block);
+                        return Ok(true);
+                    }
                     "std::io::stdin" => {
                         let (_lval, block) = destination.expect("std::io::stdin() does not diverge");
                         self.goto_block(block);

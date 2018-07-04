@@ -219,7 +219,7 @@ pub struct Memory<'a, 'tcx> {
     /// allocations for string and bytestring literals.
     literal_alloc_cache: HashMap<Vec<u8>, AllocId>,
 
-    pub constraints: ConstraintContext,
+    pub constraints: ConstraintContext<'tcx>,
 }
 
 impl<'a, 'tcx> Memory<'a, 'tcx> {
@@ -749,6 +749,17 @@ impl<'a, 'tcx> Memory<'a, 'tcx> {
             sbytes[idx] = abytes[idx];
         }
 
+        Ok(())
+    }
+
+    pub fn write_fresh_symbolic_var(&mut self, ptr: MemoryPointer, size: u64, label: String, ty: ty::Ty<'tcx>)
+        -> EvalResult<'tcx>
+    {
+        let abytes = self.constraints.fresh_symbolic_var(label, size as u32, ty);
+        let sbytes = self.get_bytes_mut(ptr, size, 1)?;
+        for idx in 0..(size as usize) {
+            sbytes[idx] = abytes[idx];
+        }
         Ok(())
     }
 }

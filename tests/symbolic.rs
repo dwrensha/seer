@@ -13,8 +13,9 @@ fn expect_panics(filename: &str, mut expected_results: Vec<Vec<u8>>) {
     let consumer = move |complete| {
         match complete {
             ::seer::ExecutionComplete { result: Err(::seer::StaticEvalError::Panic),
-                                        input } => {
-                found1.borrow_mut().push(input);
+                                        mut input } => {
+                let stdin = ::std::mem::replace(&mut input[0].assignments, Vec::new());
+                found1.borrow_mut().push(stdin);
                 true
             }
             ::seer::ExecutionComplete { result: Ok(()), input: _ } => true,

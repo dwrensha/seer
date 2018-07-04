@@ -68,6 +68,39 @@ hit an error. halting
 
 There is our answer! Our string decodes as "hello world!"
 
+## using the helper crate
+The helper crate provides some extra conveniences. The input that triggers a panic can be split by variable and types that implement `Debug` are printed in their debug representation instead of using the underlying bytes:
+
+```rust
+#[macro_use]
+extern crate seer_helper;
+seer_helper_init!();
+
+#[derive(Debug)]
+struct MyStruct {
+    a: u32,
+    b: u64,
+}
+
+fn main() {
+    let mut t = MyStruct { a: 0, b: 0 };
+    seer_helper::mksym(&mut t);
+    if t.a == 123 && t.b == 321 {
+        panic!();
+    }
+}
+```
+
+For the formatting to work, it is necessary to build MIR for the standard library, so we will use [Xargo](https://github.com/japaric/xargo):
+```
+$ RUSTFLAGS="-Z always-encode-mir" xargo seer
+...
+ExecutionComplete { input: [stdin: [], t: "MyStruct { a: 123, b: 321 }"], result: Err(NoMirFor("std::sys::unix::fast_thread_local::register_dtor::::__cxa_thread_atexit_impl")) }
+hit an error. halting
+```
+
+The full example crate can be found [here](/example/seer-helper-user).
+
 # limitations
 
 Seer is currently in the proof-of-concept stage

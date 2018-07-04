@@ -1,0 +1,11 @@
+[[package]]
+name = "seer-helper"
+version = "0.1.0"
+
+[[package]]
+name = "seer-user"
+version = "0.1.0"
+dependencies = [
+ "seer-helper 0.1.0",
+]
+

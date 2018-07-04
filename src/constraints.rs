@@ -1,8 +1,11 @@
 use rustc::mir;
+use rustc::ty::Ty;
 use z3;
+use std::fmt;
 
 use memory::{AbstractVariable, SByte};
 use value::{PrimVal, PrimValKind};
+use format_executor::DebugFormatter;
 
 #[derive(Debug, Clone, Copy)]
 pub enum NumericIntrinsic {
@@ -32,19 +35,45 @@ impl VarType {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-enum VarOrigin {
-    StdIn, // abstract byte read from stdin
-    Inner, // anything else
+#[derive(Clone, Debug)]
+struct SymbolicVar<'tcx> {
+    label: String,
+    /// One SymbolicVar is built out of many BitVec8's. The IDs are stored here.
+    variables: Vec<(u32, VarType)>,
+    ty: Option<Ty<'tcx>>,
 }
 
 #[derive(Clone, Debug)]
-pub struct ConstraintContext {
-    /// Each entry represents a variable. The index is the variable ID and
-    /// the value is the variable's type.
-    variables: Vec<(VarType, VarOrigin)>,
-
+pub struct ConstraintContext<'tcx> {
+    next_id: u32,
+    /// Each entry represents a variable as an ID and a type. These are used
+    /// for intermediate results in constraints and are not displayed.
+    variables_inner: Vec<(u32, VarType)>,
+    /// Index 0 is stdin
+    symbolic_vars: Vec<SymbolicVar<'tcx>>,
     constraints: Vec<Constraint>,
+}
+
+/// Holds relevant parts of the solution z3 found when solving a set of constraints.
+#[derive(Clone)]
+pub struct SatisfiedVar {
+    pub label: String,
+    /// Variable assignments that satisfy the given constraints.
+    pub assignments: Vec<u8>,
+    pub assignments_str: Option<String>,
+}
+
+impl fmt::Debug for SatisfiedVar {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self.assignments_str {
+            Some(ref s) => {
+                write!(f, "{}: {:?}", self.label, s)
+            }
+            None => {
+                write!(f, "{}: {:?}", self.label, self.assignments)
+            }
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -141,22 +170,52 @@ impl Constraint {
     }
 }
 
-impl ConstraintContext {
+impl<'tcx> ConstraintContext<'tcx> {
     pub fn new() -> Self {
         ConstraintContext {
-            variables: Vec::new(),
+            next_id: 0,
+            variables_inner: Vec::new(),
+            symbolic_vars: vec![SymbolicVar {
+                label: "stdin".to_string(),
+                variables: Vec::new(),
+                ty: None,
+            }],
             constraints: Vec::new(),
         }
     }
 
-    fn allocate_abstract_var(&mut self, var_type: VarType, origin: VarOrigin) -> AbstractVariable {
-        let id = self.variables.len() as u32;
-        self.variables.push((var_type, origin));
+    fn next_id(&mut self) -> u32 {
+        let id = self.next_id;
+        self.next_id += 1;
+        id
+    }
+
+    fn allocate_abstract_var(&mut self, var_type: VarType) -> AbstractVariable {
+        let id = self.next_id();
+        self.variables_inner.push((id, var_type));
         AbstractVariable(id)
     }
 
     pub fn fresh_stdin_byte(&mut self) -> SByte {
-        SByte::Abstract(self.allocate_abstract_var(VarType::BitVec8, VarOrigin::StdIn))
+        let id = self.next_id();
+        self.symbolic_vars[0].variables.push((id, VarType::BitVec8));
+        SByte::Abstract(AbstractVariable(id))
+    }
+
+    pub fn fresh_symbolic_var(&mut self, label: String, size: u32, ty: Ty<'tcx>) -> Vec<SByte> {
+        let mut sbytes = Vec::new();
+        let mut vars = Vec::new();
+        for _ in 0..size {
+            let id = self.next_id();
+            sbytes.push(SByte::Abstract(AbstractVariable(id)));
+            vars.push((id, VarType::BitVec8));
+        }
+        self.symbolic_vars.push(SymbolicVar {
+            label: label,
+            variables: vars,
+            ty: Some(ty),
+        });
+        sbytes
     }
 
     pub fn push_constraint(&mut self, constraint: Constraint) {
@@ -192,7 +251,7 @@ impl ConstraintContext {
         };
 
         for idx in 0..num_bytes {
-            buffer[idx] = SByte::Abstract(self.allocate_abstract_var(var_type, VarOrigin::Inner));
+            buffer[idx] = SByte::Abstract(self.allocate_abstract_var(var_type));
         }
 
         let primval = PrimVal::Abstract(buffer);
@@ -223,7 +282,7 @@ impl ConstraintContext {
 
         let mut buffer = [SByte::Concrete(0); 8];
         for idx in 0..num_bytes {
-            buffer[idx] = SByte::Abstract(self.allocate_abstract_var(var_type, VarOrigin::Inner));
+            buffer[idx] = SByte::Abstract(self.allocate_abstract_var(var_type));
         }
 
         let primval = PrimVal::Abstract(buffer);
@@ -246,7 +305,7 @@ impl ConstraintContext {
 
         let mut buffer = [SByte::Concrete(0); 8];
         for idx in 0..num_bytes {
-            buffer[idx] = SByte::Abstract(self.allocate_abstract_var(VarType::BitVec8, VarOrigin::Inner));
+            buffer[idx] = SByte::Abstract(self.allocate_abstract_var(VarType::BitVec8));
         }
 
         let primval = PrimVal::Abstract(buffer);
@@ -269,7 +328,7 @@ impl ConstraintContext {
         let num_bytes = kind.num_bytes();
         let mut buffer = [SByte::Concrete(0); 8];
         for idx in 0..num_bytes {
-            buffer[idx] = SByte::Abstract(self.allocate_abstract_var(var_type, VarOrigin::Inner));
+            buffer[idx] = SByte::Abstract(self.allocate_abstract_var(var_type));
         }
 
         let lhs = PrimVal::Abstract(buffer);
@@ -285,7 +344,7 @@ impl ConstraintContext {
     }
 
     pub fn new_array(&mut self) -> AbstractVariable {
-        self.allocate_abstract_var(VarType::Array, VarOrigin::Inner)
+        self.allocate_abstract_var(VarType::Array)
     }
 
     pub fn set_array_element_constraint(
@@ -306,7 +365,7 @@ impl ConstraintContext {
         index: PrimVal)
         -> SByte
     {
-        let value = SByte::Abstract(self.allocate_abstract_var(VarType::BitVec8, VarOrigin::Inner));
+        let value = SByte::Abstract(self.allocate_abstract_var(VarType::BitVec8));
         self.push_constraint(
             Constraint::ArrayElement {
                 array, index, value,
@@ -330,38 +389,21 @@ impl ConstraintContext {
         new_array
     }
 
-    pub fn get_satisfying_values(&self) -> Vec<u8> {
+    pub fn get_satisfying_values<T>(&self, formatter: &T) -> Vec<SatisfiedVar>
+        where T: DebugFormatter<'tcx>
+    {
         let cfg = z3::Config::new();
         let ctx = z3::Context::new(&cfg);
         let solver = z3::Solver::new(&ctx);
 
         let mut consts = Vec::new();
-
-        let mut result_consts = Vec::new();
-
-        for (idx, v) in self.variables.iter().enumerate() {
-            let (var_type, var_origin) = *v;
-            match var_type {
-                VarType::Bool => {
-                    consts.push(ctx.numbered_bool_const(idx as u32));
-                }
-                VarType::BitVec8 => {
-                    consts.push(ctx.numbered_bitvector_const(idx as u32, 8));
-                    if let VarOrigin::StdIn = var_origin {
-                        result_consts.push(ctx.numbered_bitvector_const(idx as u32, 8));
-                    }
-                }
-                VarType::Array => {
-                    consts.push(
-                        ::z3::Ast::new_const(
-                            &::z3::Symbol::from_int(&ctx, idx as u32),
-                            &ctx.array_sort(
-                                &ctx.bitvector_sort(64),
-                                &ctx.bitvector_sort(8))));
-                }
-            }
-
+        for v in self.variables_inner.iter() {
+            consts.push(self.variable_to_ast(&ctx, *v));
         }
+
+        // Each SymbolicVar has its internal variables mapped to z3 ASTs. Keep the labels and types.
+        let result_consts = self.symbolic_vars.iter().map(
+            |g| (g.label.clone(), g.variables.iter().map(|v| self.variable_to_ast(&ctx, *v)), g.ty));
 
         for c in &self.constraints {
             solver.assert(&self.constraint_to_ast(&ctx, *c));
@@ -371,8 +413,22 @@ impl ConstraintContext {
         let model = solver.get_model();
 
         let mut result = Vec::new();
-        for rc in result_consts {
-            result.push(model.eval(&rc).unwrap().as_u64().unwrap() as u8);
+        for (label, asts, ty_opt) in result_consts {
+            let assignments: Vec<u8> = asts.map(
+                    |ast| model.eval(&ast).unwrap().as_u64().unwrap() as u8)
+                    .collect();
+            let assignments_str = match ty_opt {
+                Some(ty) => {
+                    let s_res = formatter.debug_repr(&assignments, ty);
+                    s_res.ok()
+                }
+                None => None,
+            };
+            result.push(SatisfiedVar {
+                label: label,
+                assignments: assignments,
+                assignments_str: assignments_str,
+            });
         }
 
         result
@@ -396,6 +452,30 @@ impl ConstraintContext {
         }
 
         solver.check()
+    }
+
+    fn variable_to_ast<'a>(
+        &self,
+        ctx: &'a z3::Context,
+        variable: (u32, VarType))
+        -> z3::Ast<'a>
+    {
+        let (idx, var_type) = variable;
+        match var_type {
+            VarType::Bool => {
+                ctx.numbered_bool_const(idx as u32)
+            }
+            VarType::BitVec8 => {
+                ctx.numbered_bitvector_const(idx as u32, 8)
+            }
+            VarType::Array => {
+                ::z3::Ast::new_const(
+                    &::z3::Symbol::from_int(&ctx, idx as u32),
+                    &ctx.array_sort(
+                        &ctx.bitvector_sort(64),
+                        &ctx.bitvector_sort(8)))
+            }
+        }
     }
 
     fn sbyte_to_ast<'a>(

@@ -67,12 +67,13 @@ fn after_analysis_run_main<'a, 'tcx>(config: ::ExecutionConfig)
         state.session.abort_if_errors();
 
         let tcx = state.tcx.unwrap();
+        let codemap = state.session.codemap();
         let limits = resource_limits_from_attributes(state);
 
         if let Some((entry_node_id, _, _)) = *state.session.entry_fn.borrow() {
             let entry_def_id = tcx.hir.local_def_id(entry_node_id);
 
-            let mut executor = ::executor::Executor::new(tcx, entry_def_id, limits, config.clone());
+            let mut executor = ::executor::Executor::new(tcx, entry_def_id, limits, config.clone(), codemap);
             executor.run();
 
             state.session.abort_if_errors();
@@ -146,3 +147,4 @@ pub fn main_helper(mut args: Vec<String>, config: ::ExecutionConfig)
     rustc_driver::run_compiler(&args, Box::new(SeerCompilerCalls(Box::new(RustcDefaultCalls), config)),
                                None, None);
 }
+

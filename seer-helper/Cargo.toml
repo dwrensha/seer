@@ -1,0 +1,8 @@
+[package]
+name = "seer-helper"
+version = "0.1.0"
+authors = ["nilfit <nils.fitinghoff@gmail.com>"]
+
+[lib]
+
+[dependencies]

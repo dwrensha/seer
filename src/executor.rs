@@ -6,18 +6,20 @@ use rustc::hir::def_id::DefId;
 use rustc::hir::map::definitions::DefPathData;
 use rustc::mir;
 use rustc::ty::{self, TyCtxt, Ty};
-use syntax::codemap::{DUMMY_SP};
+use syntax::codemap::{DUMMY_SP, CodeMap};
 
-use constraints::Constraint;
+use constraints::{Constraint, SatisfiedVar};
 use error::{StaticEvalError, EvalError};
 use place::{Place};
 use eval_context::{EvalContext, Frame, ResourceLimits, StackPopCleanup};
 use value::{PrimVal};
+use format_executor::BestEffortFormatter;
 
 pub struct Executor<'a, 'tcx: 'a> {
     tcx: TyCtxt<'a, 'tcx, 'tcx>,
     queue: VecDeque<EvalContext<'a, 'tcx>>,
     config: ExecutionConfig,
+    formatter: BestEffortFormatter<'a, 'tcx>,
 }
 
 pub struct FinishStep<'tcx> {
@@ -69,7 +71,7 @@ impl ExecutionConfig {
 
 #[derive(Debug)]
 pub struct ExecutionComplete {
-    pub input: Vec<u8>,
+    pub input: Vec<SatisfiedVar>,
     pub result: Result<(), StaticEvalError>,
 }
 
@@ -79,6 +81,7 @@ impl <'a, 'tcx: 'a> Executor<'a, 'tcx> {
         def_id: DefId,
         limits: ResourceLimits,
         config: ExecutionConfig,
+        codemap: &'a CodeMap
     )
         -> Self
     {
@@ -87,9 +90,10 @@ impl <'a, 'tcx: 'a> Executor<'a, 'tcx> {
             tcx: tcx,
             queue: VecDeque::new(),
             config: config,
+            formatter: BestEffortFormatter::new(tcx, limits, codemap),
         };
 
-        let mut ecx = EvalContext::new(tcx, limits);
+        let mut ecx = EvalContext::new(tcx, limits, codemap);
         let instance = ty::Instance::mono(tcx, def_id);
         let mir = ecx.load_mir(instance.def).expect("main function's MIR not found");
 
@@ -124,7 +128,7 @@ impl <'a, 'tcx: 'a> Executor<'a, 'tcx> {
     }
 
     // return true if we should continue with other executions
-    fn report_error(&mut self, ecx: &EvalContext, e: EvalError) -> bool {
+    fn report_error(&mut self, ecx: EvalContext<'a, 'tcx>, e: EvalError) -> bool {
         if self.config.emit_error {
             report(self.tcx, &ecx, e.clone());
         }
@@ -132,7 +136,7 @@ impl <'a, 'tcx: 'a> Executor<'a, 'tcx> {
         match self.config.consumer {
             Some(ref f) => {
                 (&mut *f.borrow_mut())(ExecutionComplete {
-                    input: ecx.memory.constraints.get_satisfying_values(),
+                    input: ecx.memory.constraints.get_satisfying_values(&self.formatter),
                     result: Err(e.into())
                 })
             }
@@ -167,7 +171,7 @@ impl <'a, 'tcx: 'a> Executor<'a, 'tcx> {
                                         cx.goto_block(goto_block);
                                     }
                                     FinishStepVariant::Error(ref e) => {
-                                        if !self.report_error(&cx, e.clone()) {
+                                        if !self.report_error(cx.clone(), e.clone()) {
                                             break 'main_loop;
                                         }
                                         no_errors = false;
@@ -185,7 +189,7 @@ impl <'a, 'tcx: 'a> Executor<'a, 'tcx> {
                     let go_on = match self.config.consumer {
                         Some(ref f) => {
                             (&mut *f.borrow_mut())(ExecutionComplete {
-                                input: ecx.memory.constraints.get_satisfying_values(),
+                                input: ecx.memory.constraints.get_satisfying_values(&self.formatter),
                                 result: Ok(())
                             })
                         }
@@ -200,7 +204,7 @@ impl <'a, 'tcx: 'a> Executor<'a, 'tcx> {
                     }
                 }
                 Err(e) => {
-                    if !self.report_error(&ecx, e) {
+                    if !self.report_error(ecx, e) {
                         break;
                     }
                 }
