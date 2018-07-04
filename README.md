@@ -25,7 +25,7 @@ plain rustc and run it on that input.
 
 ## example: decode base64 given only an encoder
 
-[[source code](/seer/example/standalone/base64.rs)]
+[[source code](/example/standalone/base64.rs)]
 
 Suppose we are given a base64 encoder function:
 
@@ -99,7 +99,7 @@ ExecutionComplete { input: [stdin: [], t: "MyStruct { a: 123, b: 321 }"], result
 hit an error. halting
 ```
 
-The full example crate can be found [here](/seer/example/seer-helper-user).
+The full example crate can be found [here](/example/seer-helper-user).
 
 # limitations
 
