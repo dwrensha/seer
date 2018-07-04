@@ -12,7 +12,6 @@ addons:
     packages:
     - libz3-dev
 script:
-  - cd seer
   - cargo build
   - cargo test
   - cargo doc -p seer --no-deps
