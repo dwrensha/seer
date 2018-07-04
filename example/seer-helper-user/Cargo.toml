@@ -4,4 +4,4 @@ version = "0.1.0"
 authors = ["nilfit <nils.fitinghoff@gmail.com>"]
 
 [dependencies]
-seer-helper = { path = "../../../seer-helper" }
+seer-helper = { path = "../../seer-helper" }
