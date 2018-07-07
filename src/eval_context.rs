@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::fmt::Write;
 
 use rustc::hir::def_id::DefId;
-use rustc::middle::const_val::ConstVal;
+use rustc::mir::interpret::ConstValue;
 use rustc::mir;
 use rustc::ty::layout::{self, Size, HasDataLayout, LayoutOf, TyLayout};
 use rustc::ty::subst::{Subst, Substs, Kind};
@@ -296,9 +296,9 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
         }
     }
 
-    pub(super) fn const_to_value(&mut self, const_val: &ConstVal<'tcx>) -> EvalResult<'tcx, Value> {
+    pub(super) fn const_to_value(&mut self, const_val: &ConstValue<'tcx>) -> EvalResult<'tcx, Value> {
         Ok(match *const_val {
-            ConstVal::Unevaluated(def_id, substs) => {
+            ConstValue::Unevaluated(def_id, substs) => {
                 let instance = self.resolve_associated_const(def_id, substs);
                 let cid = GlobalId {
                     instance,
@@ -306,14 +306,13 @@ impl<'a, 'tcx> EvalContext<'a, 'tcx> {
                 };
                 self.globals.get(&cid).expect("static/const not cached").value
             }
-
-            ConstVal::Value(mir::interpret::ConstValue::ByRef(..)) => {
+            ConstValue::ByRef(..) => {
                 unimplemented!()
             }
-            ConstVal::Value(mir::interpret::ConstValue::Scalar(prim_val)) => {
+            ConstValue::Scalar(prim_val) => {
                 Value::ByVal(self.rustc_primval_to_primval(prim_val)?)
             }
-            ConstVal::Value(mir::interpret::ConstValue::ScalarPair(p1, p2)) => {
+            ConstValue::ScalarPair(p1, p2) => {
                 Value::ByValPair(self.rustc_primval_to_primval(p1)?,
                                  self.rustc_primval_to_primval(p2)?)
             }
