@@ -13,10 +13,10 @@ impl Drop for DroppableStruct {
 trait MyTrait { fn dummy(&self) { } }
 impl MyTrait for Box<DroppableStruct> {}
 
-struct Whatever { w: Box<MyTrait+'static> }
+struct Whatever { _w: Box<MyTrait+'static> }
 impl  Whatever {
     fn new(w: Box<MyTrait+'static>) -> Whatever {
-        Whatever { w: w }
+        Whatever { _w: w }
     }
 }
 
