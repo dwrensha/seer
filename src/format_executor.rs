@@ -241,7 +241,7 @@ impl<'a> FunctionVisitor<'a> {
 impl<'a, 'tcx> ItemLikeVisitor<'tcx> for FunctionVisitor<'a> {
     fn visit_item(&mut self, i: &'tcx hir::Item){
         match i.node {
-            hir::ItemFn(..) => {
+            hir::ItemKind::Fn(..) => {
                 if i.name == self.name {
                     self.display_fn = Some((i.id, i.span));
                 }

@@ -241,7 +241,7 @@ impl<'a, 'b, 'tcx> Visitor<'tcx> for ConstantExtractor<'a, 'b, 'tcx> {
             let span = self.span;
             if let Some(node_item) = self.ecx.tcx.hir.get_if_local(def_id) {
                 if let hir::map::Node::NodeItem(&hir::Item { ref node, .. }) = node_item {
-                    if let hir::ItemStatic(_, m, _) = *node {
+                    if let hir::ItemKind::Static(_, m, _) = *node {
                         self.global_item(def_id, substs, span, m == hir::MutImmutable);
                         return;
                     } else {
